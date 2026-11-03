@@ -5154,7 +5154,7 @@ pcall(function()
     ------------------------------------------------------------
     local slotGlow = {}
     local autoFixNotify, autoFixStatus, autoFixFail -- assigned further down, once the notification banner exists
-    do
+    local function buildSlotGlow() -- own function = own 200-local budget (fixes "Out of local registers")
         local SHORT = {
             ["1"] = "Taser", ["4"] = "Yin/Stop Sign", ["5"] = "RPG", ["6"] = "Loveboard",
             ["7"] = "Golden SL", ["8"] = "Fist", ["9"] = "Normal SL", ["0"] = "Parasol",
@@ -7504,6 +7504,7 @@ pcall(function()
             end
         end)
     end
+    buildSlotGlow()
 
 
     -- opens the slot panel beside the main panel (flips to the left if there's no room)
