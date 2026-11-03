@@ -1,0 +1,133 @@
+-- Exotica Hotbar Guard (standalone). Run it by itself, or together with Exotica_Hotbar_Diagnostic.lua.
+-- Stops the game's anti-spam from switching your hotbar off and force-unequipping your tools.
+local Players = game:GetService("Players")
+local p = Players.LocalPlayer
+
+-- ==========================================
+-- HOTBAR GUARD (Baddies)
+-- Cause found in the game's BackpackController: six Tool additions to your character with under 0.7s
+-- between them trips an anti-spam that turns the Satchel hotbar off, force-unequips your tools and
+-- waits 3 seconds. Fast macros trip it.
+-- Fix 1: that anti-spam trigger is neutralised at the source (_disableSpam).
+-- Fix 2: Satchel:SetBackpackEnabled(false) is blocked unless the game has a real reason (driving, duel,
+--        arrested, frozen, dress room...), and a watchdog turns the hotbar back on if it is still off.
+-- Logger: while DEBUG is true, everything that hides the hotbar is printed and saved to
+--        Exotica_Hotbar_Debug.txt (with who called it), so it can be sent for diagnosis.
+-- ==========================================
+task.spawn(function()
+    local GUARD_ENABLED = true
+    local DEBUG = true
+
+    local RS = game:GetService("ReplicatedStorage")
+    local t0 = os.clock()
+    local logLines, flushQueued = {}, false
+    local function dlog(...)
+        if not DEBUG then return end
+        local parts = { string.format("[%7.2f]", os.clock() - t0) }
+        for _, v in ipairs({ ... }) do parts[#parts + 1] = tostring(v) end
+        local line = table.concat(parts, " ")
+        print("[Exotica HotbarGuard]", line)
+        logLines[#logLines + 1] = line
+        if #logLines > 400 then table.remove(logLines, 1) end
+        if writefile and not flushQueued then
+            flushQueued = true
+            task.delay(1.5, function()
+                flushQueued = false
+                pcall(writefile, "Exotica_Hotbar_Debug.txt", table.concat(logLines, "\n"))
+            end)
+        end
+    end
+
+    local LEGIT_BLOCKS = {
+        "Freezed", "BeingDogLeashed", "BeingTombstoneTrapped", "BeingArrested", "USER_DRIVING",
+        "USER_VEHICLE_SITTING", "IN_DRESS_ROOM", "CARRYING_EGG", "UNDERGROUND_FIGHTING", "IsOnDuel",
+        "BeingSchoolLockerTrapped", "IsJuggernautOfRunEvent", "GravityGunEffect", "ChampionRingQueue",
+    }
+    local function activeBlocks()
+        local on = {}
+        for _, a in ipairs(LEGIT_BLOCKS) do
+            if p:GetAttribute(a) then on[#on + 1] = a end
+        end
+        return on
+    end
+
+    -- sets t[k] = v even if the table is read-only (frozen), when the executor allows it; logs if it can't
+    local function patch(t, k, v)
+        if pcall(function() t[k] = v end) then return true end
+        pcall(function() if setreadonly then setreadonly(t, false) end end)
+        local ok2, err = pcall(function() t[k] = v end)
+        if ok2 then return true end
+        dlog("could not patch", k, "|", tostring(err))
+        return false
+    end
+
+    local Satchel, Ctrl
+    pcall(function()
+        local mods = RS:WaitForChild("Modules", 15)
+        Satchel = require(mods:WaitForChild("Satchel", 15))
+    end)
+    pcall(function()
+        local scripts = p:WaitForChild("PlayerScripts", 15)
+        local controllers = scripts:WaitForChild("Controllers", 30)
+        Ctrl = require(controllers:WaitForChild("BackpackController", 30))
+    end)
+    dlog("Satchel:", Satchel and "found" or "MISSING", "| BackpackController:", type(Ctrl) == "table" and "found" or "MISSING")
+
+    -- Fix 1: the anti-spam shutdown never runs (no hotbar off, no forced unequip)
+    if type(Ctrl) == "table" then
+        local origSpam = Ctrl._disableSpam
+        patch(Ctrl, "_disableSpam", function(self, ...)
+            if not GUARD_ENABLED then return origSpam(self, ...) end
+            dlog("BLOCKED the game's anti-spam hotbar shutdown")
+        end)
+    end
+
+    -- Fix 2: Satchel can't be switched off without a real reason; every attempt is logged with its caller
+    if Satchel then
+        local origSet = Satchel.SetBackpackEnabled
+        patch(Satchel, "SetBackpackEnabled", function(self, value, ...)
+            if value == false then
+                local why = activeBlocks()
+                dlog("SetBackpackEnabled(false) | game reasons:", #why > 0 and table.concat(why, ",") or "NONE")
+                dlog((debug.traceback("caller", 2):gsub("\n", " <- ")))
+                if GUARD_ENABLED and #why == 0 then
+                    dlog("-> ignored")
+                    return
+                end
+            end
+            return origSet(self, value, ...)
+        end)
+    end
+
+    -- logger: tool add / remove timing on your character (shows the burst that trips the game)
+    local function watchChar(char)
+        if not char then return end
+        char.ChildAdded:Connect(function(c) if c:IsA("Tool") then dlog("equipped", c.Name) end end)
+        char.ChildRemoved:Connect(function(c) if c:IsA("Tool") then dlog("unequipped", c.Name) end end)
+    end
+    watchChar(p.Character)
+    p.CharacterAdded:Connect(watchChar)
+
+    -- watchdog: if the hotbar is off with no game reason, turn it back on
+    local lastState
+    while true do
+        task.wait(0.1)
+        if Satchel then
+            local ok, enabled = pcall(function() return Satchel:GetBackpackEnabled() end)
+            if ok and enabled ~= lastState then
+                lastState = enabled
+                dlog("hotbar enabled =", tostring(enabled))
+            end
+            if GUARD_ENABLED and ok and enabled == false and #activeBlocks() == 0 then
+                local hum = p.Character and p.Character:FindFirstChildOfClass("Humanoid")
+                if hum and hum.Health > 0 then
+                    pcall(function()
+                        Satchel:SetBackpackEnabled(true)
+                    end)
+                    if type(Ctrl) == "table" then Ctrl._enabled = true Ctrl._spamDelay = false end
+                    dlog("watchdog turned the hotbar back on")
+                end
+            end
+        end
+    end
+end)
