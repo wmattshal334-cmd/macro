@@ -112,8 +112,8 @@ local function snapshot(reason)
         "| Satchel enabled:", satchelOn,
         "| TopbarEnabled:", topbar,
         "| BackpackGui:", g and ("Enabled=" .. tostring(g.Enabled)) or "MISSING",
-        "| Backpack.Visible:", backpack and backpack.Visible or "MISSING",
-        "| Hotbar.Visible:", hotbar and hotbar.Visible or "MISSING",
+        "| Backpack.Visible:", backpack and tostring(backpack.Visible) or "MISSING",
+        "| Hotbar.Visible:", hotbar and tostring(hotbar.Visible) or "MISSING",
         "| slot frames visible:", visibleSlots .. "/" .. totalSlots,
         "| game attributes on:", activeAttributes(),
         "| tools held:", toolList())
