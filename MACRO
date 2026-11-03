@@ -1,3 +1,13 @@
+-- Dynamically build the authorization key so string obfuscators never touch it
+local part1 = string.char(69, 120, 111, 116, 105, 99, 97) -- "Exotica"
+local part2 = string.char(65, 117, 116, 104, 111, 114, 105, 122, 101, 100, 83, 101, 115, 115, 105, 111, 110) -- "AuthorizedSession"
+local sessionKey = part1 .. part2
+
+if not rawget(_G, sessionKey) then
+    warn("Unauthorized execution attempt detected!")
+    return
+end
+
 -- [The rest of your obfuscated or normal master script code goes here]
 local UIS = game:GetService("UserInputService")
 local Players = game:GetService("Players")
@@ -4644,11 +4654,6 @@ pcall(function()
         AutoEquipEnabled = on
         playEmbedded(on and "click" or "off", 0.7, 1, 1)
     end)
-    makeSwitchRow("🛡️ Hotbar Guard", true, function(on)
-        local gg = ((getgenv and getgenv()) or _G).ExoticaHotbarGuard
-        if gg then gg.Enabled = on end
-        playEmbedded(on and "click" or "off", 0.7, 1, 1)
-    end)
     local _, infoBtn = makeRow("ℹ️ Slots", "View")
     local _, tiersBtn = makeRow("🏆 Weapon Tiers", "View")
 
@@ -7569,64 +7574,82 @@ pcall(function()
     end)
 end)
 
+
 -- ==========================================
--- HOTBAR GUARD v7
--- Cause (found in the game's own BackpackController): when 6 tools are equipped with less than 0.7s between
--- them, the game runs _disableSpam(): it turns the backpack off, calls Humanoid:UnequipTools(), and keeps you
--- locked out for 3 seconds. This patches that one function so the lockout never starts.
--- Other backpack locks (driving, arrested, duels, frozen, ...) are NOT touched.
--- Panel switch "Hotbar Guard": on = lockout blocked, off = the game behaves normally.
+-- HOTBAR GUARD (Baddies)
+-- Cause: the game's BackpackController counts Tool additions to your character. Six in a row with
+-- under 0.7s between them trips its anti-spam, which turns the Satchel hotbar off, unequips your
+-- tools, and waits 3 seconds. Fast macros trip it, so the hotbar vanishes.
+-- Fix 1: neutralise that anti-spam trigger at the source (_disableSpam).
+-- Fix 2: a watchdog turns the hotbar back on if it is off for any reason the game's own rules
+-- don't call for (driving, duel, arrested, frozen, dress room, and so on stay respected).
+-- Set DEBUG = true to print what it did.
 -- ==========================================
 task.spawn(function()
-    local Players = game:GetService("Players")
-    local lp = Players.LocalPlayer
-    local clock = os.clock
+    local GUARD_ENABLED = true
+    local DEBUG = false
+    local function dlog(...) if DEBUG then print("[Exotica HotbarGuard]", ...) end end
 
-    local Guard = { Enabled = true, Debug = true }
-    ;((getgenv and getgenv()) or _G).ExoticaHotbarGuard = Guard
+    local RS = game:GetService("ReplicatedStorage")
 
-    local function say(msg) if Guard.Debug then print("[HotbarGuard] " .. msg) end end
-
-    local scripts = lp:WaitForChild("PlayerScripts", 15)
-    local controllers = scripts and scripts:WaitForChild("Controllers", 15)
-    local mod = controllers and controllers:WaitForChild("BackpackController", 15)
-    if not mod then say("BackpackController not found, nothing patched") return end
-
-    local ok, ctrl = pcall(require, mod)
-    if not ok or type(ctrl) ~= "table" then
-        say("could not load BackpackController: " .. tostring(ctrl))
-        return
-    end
-    if type(ctrl._disableSpam) ~= "function" then
-        say("BackpackController has no _disableSpam (the game was updated?), nothing patched")
-        return
-    end
-    if setreadonly then pcall(setreadonly, ctrl, false) end
-
-    local original = ctrl._disableSpam
-    local lastSay = 0
-    local okSet = pcall(function()
-        ctrl._disableSpam = function(self, ...)
-            if Guard.Enabled then
-                if clock() - lastSay > 1 then
-                    lastSay = clock()
-                    say("blocked the fast-switch lockout (hotbar off + tool unequip for 3s)")
-                end
-                return
-            end
-            return original(self, ...)
+    -- the game's own reasons for hiding the hotbar (copied from its _canEnable check)
+    local LEGIT_BLOCKS = {
+        "Freezed", "BeingDogLeashed", "BeingTombstoneTrapped", "BeingArrested", "USER_DRIVING",
+        "USER_VEHICLE_SITTING", "IN_DRESS_ROOM", "CARRYING_EGG", "UNDERGROUND_FIGHTING", "IsOnDuel",
+        "BeingSchoolLockerTrapped", "IsJuggernautOfRunEvent", "GravityGunEffect", "ChampionRingQueue",
+    }
+    local function legitlyBlocked()
+        for _, a in ipairs(LEGIT_BLOCKS) do
+            if p:GetAttribute(a) then return true end
         end
-    end)
-    if not okSet then say("BackpackController is locked, could not patch it") return end
-
-    -- if a lockout was already running when the script loaded, end it now
-    if Guard.Enabled and ctrl._spamDelay then
-        if ctrl._spamThread then pcall(task.cancel, ctrl._spamThread) ctrl._spamThread = nil end
-        ctrl._spamDelay = false
-        pcall(function() ctrl:_enable() end)
+        return false
     end
 
-    say("running v7: fast-switch lockout patched")
+    local Satchel, Ctrl
+    pcall(function()
+        local mods = RS:WaitForChild("Modules", 15)
+        Satchel = require(mods:WaitForChild("Satchel", 15))
+    end)
+    pcall(function()
+        local scripts = p:WaitForChild("PlayerScripts", 15)
+        local controllers = scripts:WaitForChild("Controllers", 30)
+        Ctrl = require(controllers:WaitForChild("BackpackController", 30))
+    end)
+
+    -- Fix 1: the anti-spam disable never runs, so no hotbar shutdown and no forced unequip
+    if type(Ctrl) == "table" then
+        Ctrl._disableSpam = function(self)
+            if not GUARD_ENABLED then return end
+            dlog("blocked the game's anti-spam hotbar shutdown")
+        end
+        dlog("BackpackController hooked")
+    else
+        dlog("BackpackController not found; relying on the watchdog")
+    end
+
+    -- Fix 2: watchdog
+    if not Satchel then
+        dlog("Satchel not found")
+        return
+    end
+    while true do
+        task.wait(0.1)
+        if GUARD_ENABLED then
+            local ok, enabled = pcall(function() return Satchel:GetBackpackEnabled() end)
+            if ok and enabled == false and not legitlyBlocked() then
+                local char = p.Character
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                if hum and hum.Health > 0 then
+                    pcall(function() Satchel:SetBackpackEnabled(true) end)
+                    if type(Ctrl) == "table" then
+                        Ctrl._enabled = true
+                        Ctrl._spamDelay = false
+                    end
+                    dlog("hotbar was off with no game reason; turned back on")
+                end
+            end
+        end
+    end
 end)
 
 print("Exotica: Master Suite Initialized Successfully!")
