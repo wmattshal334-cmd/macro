@@ -1,3 +1,13 @@
+-- Dynamically build the authorization key so string obfuscators never touch it
+local part1 = string.char(69, 120, 111, 116, 105, 99, 97) -- "Exotica"
+local part2 = string.char(65, 117, 116, 104, 111, 114, 105, 122, 101, 100, 83, 101, 115, 115, 105, 111, 110) -- "AuthorizedSession"
+local sessionKey = part1 .. part2
+
+if not rawget(_G, sessionKey) then
+    warn("Unauthorized execution attempt detected!")
+    return
+end
+
 -- [The rest of your obfuscated or normal master script code goes here]
 local UIS = game:GetService("UserInputService")
 local Players = game:GetService("Players")
@@ -712,7 +722,7 @@ local FALLBACK_KEYS = { startup = true, warning = true }
 local SoundsEnabled = true -- the "Sounds" switch in the panel flips this
 local AutoFixEnabled = true -- the "Auto Slot Fix" switch in the panel flips this
 local AutoAccessoryEnabled = true -- the "Auto Accessories" switch flips this
-local SCRIPT_VERSION = "2.1 Beta"
+local SCRIPT_VERSION = "2.2 Beta"
 local HighPing = false -- set by the ping watch further down
 local AutoEquipEnabled = true -- the "Auto Equip" switch flips this
 local LastUserInput = os.clock() -- when you last touched the screen/keys (auto-fix waits until you're still)
@@ -4645,6 +4655,7 @@ pcall(function()
         playEmbedded(on and "click" or "off", 0.7, 1, 1)
     end)
     local _, infoBtn = makeRow("ℹ️ Slots", "View")
+    local _, guideBtn = makeRow("📘 How To Use", "View")
     local _, tiersBtn = makeRow("🏆 Weapon Tiers", "View")
 
     local mainFader = makeFader(main)
@@ -4927,6 +4938,132 @@ pcall(function()
 
     local tiersFader = makeFader(tiers)
     local tiersCtrl = makePanelController(tiers, tiersScale, tiersFader)
+
+    ------------------------------------------------------------
+    -- How To Use panel (opens by itself the very first time the script is run)
+    ------------------------------------------------------------
+    local UI2 = {}
+    local function buildSidePanel(name, titleText, sections)
+        local W = 300
+        local panel = makeGlass(sg, 28)
+        panel.Name = name
+        panel.Size = UDim2.new(0, W, 0, 100)
+        panel.Active = true
+        local pScale = Instance.new("UIScale")
+        pScale.Parent = panel
+        local header = Instance.new("TextButton")
+        header.Size = UDim2.new(1, 0, 0, 48)
+        header.BackgroundTransparency = 1
+        header.Text = ""
+        header.AutoButtonColor = false
+        header.Parent = panel
+        makeDraggable(header, panel)
+        newLabel(panel, {
+            Size = UDim2.new(1, -90, 0, 24), Position = UDim2.new(0, 45, 0, 13),
+            Font = Enum.Font.GothamBold, Text = titleText, TextSize = 16,
+        })
+        local closeBtn = Instance.new("TextButton")
+        closeBtn.Size = UDim2.new(0, 14, 0, 14)
+        closeBtn.Position = UDim2.new(0, 18, 0, 18)
+        closeBtn.BackgroundColor3 = COLORS.red
+        closeBtn.BorderSizePixel = 0
+        closeBtn.Text = ""
+        closeBtn.AutoButtonColor = false
+        closeBtn.Parent = panel
+        corner(closeBtn, 7)
+        local scroll = Instance.new("ScrollingFrame")
+        scroll.Position = UDim2.new(0, 14, 0, 50)
+        scroll.Size = UDim2.new(1, -28, 1, -60)
+        scroll.BackgroundTransparency = 1
+        scroll.BorderSizePixel = 0
+        scroll.ScrollBarThickness = 3
+        scroll.ScrollBarImageColor3 = COLORS.white
+        scroll.ScrollBarImageTransparency = 0.6
+        scroll.ScrollingDirection = Enum.ScrollingDirection.Y
+        scroll.Parent = panel
+        hookScrollSound(scroll, panel)
+        local TextService = game:GetService("TextService")
+        local rowW = W - 28 - 6
+        local y = 0
+        for si, sec in ipairs(sections) do
+            if si > 1 then y = y + 8 end
+            newLabel(scroll, {
+                Size = UDim2.new(0, rowW, 0, 18), Position = UDim2.new(0, 0, 0, y),
+                Font = Enum.Font.GothamBold, Text = sec.heading, TextSize = 13, TextColor3 = sec.color,
+                TextXAlignment = Enum.TextXAlignment.Left,
+            })
+            y = y + 22
+            for _, r in ipairs(sec.rows) do
+                local th = TextService:GetTextSize(r[2], 11, Enum.Font.Gotham, Vector2.new(rowW - 52, 10000)).Y
+                local rowH = math.max(30, math.ceil(th) + 14)
+                local row = Instance.new("Frame")
+                row.Size = UDim2.new(0, rowW, 0, rowH)
+                row.Position = UDim2.new(0, 0, 0, y)
+                row.BackgroundColor3 = COLORS.white
+                row.BackgroundTransparency = 0.9
+                row.BorderSizePixel = 0
+                row.Parent = scroll
+                corner(row, 12)
+                stroke(row, COLORS.white, 0.88, 1)
+                local badge = newLabel(row, {
+                    Size = UDim2.new(0, 30, 0, 24), Position = UDim2.new(0, 6, 0.5, -12),
+                    BackgroundTransparency = 0.75, BackgroundColor3 = sec.color, Font = Enum.Font.GothamBold,
+                    Text = r[1], TextSize = (#r[1] > 2) and 9 or 12, TextColor3 = sec.color,
+                })
+                corner(badge, 12)
+                newLabel(row, {
+                    Size = UDim2.new(1, -52, 1, 0), Position = UDim2.new(0, 44, 0, 0), Text = r[2], TextSize = 11,
+                    TextColor3 = Color3.fromRGB(235, 235, 245), TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left,
+                })
+                y = y + rowH + 5
+            end
+        end
+        scroll.CanvasSize = UDim2.new(0, 0, 0, y)
+        local ctrl = makePanelController(panel, pScale, makeFader(panel))
+        closeBtn.Activated:Connect(function() ctrl.hide() end)
+        return { panel = panel, ctrl = ctrl, W = W, contentH = y }
+    end
+
+    UI2.guide = buildSidePanel("GuidePanel", "How To Use", {
+        { heading = "👋 Getting started", color = COLORS.accent, rows = {
+            { "Q", "Snowball combo: tap Q. Your two launchers are aimed for you." },
+            { "G", "Board combo: Taser, your high-DPS weapons, then the Loveboard." },
+            { "E", "RPG combo: your RPG, then the Loveboard." },
+            { "KEY", "Tap a key box in the menu to change which key runs a combo." },
+        } },
+        { heading = "🎯 Aim Assist", color = COLORS.accent2, rows = {
+            { "1", "Turn the Assist switch on. It aims the two launcher shots at your target." },
+            { "2", "Aim Mode starts on Classic. Smart is still in beta." },
+            { "3", "It never clicks UI: shots go through buttons to what's behind them." },
+        } },
+        { heading = "🧰 Auto Slot Fix", color = COLORS.green, rows = {
+            { "A", "Sorts your hotbar by itself when you open your backpack, after you respawn, and when you're idle." },
+            { "B", "If you're busy it asks first. Tap the prompt to fix right now, or it waits." },
+            { "C", "Slots flash when fixed. Three switches let you turn off Auto Slot Fix, Auto Accessories or Auto Equip." },
+        } },
+        { heading = "🗡 Weapons you need", color = COLORS.accent, rows = {
+            { "5", "RPG (any RPG, Trick or Treat RPG, or Santa's launcher)." },
+            { "6", "Loveboard, or one of its skins." },
+            { "7", "Golden Snowball Launcher." },
+            { "9", "Snowball Launcher." },
+            { "1", "Taser. Without one, a spare high-DPS weapon is used." },
+            { "4 8 0", "High-DPS weapons. Slot 8 is your Fist, which needs knuckles or gloves equipped." },
+            { "2 3", "Accessory weapons, such as purses, Grenade Launcher or Gravity Gun." },
+            { "GET", "Missing something? Get it from the weapon combo screen in the game. Weapon Tiers shows what's best." },
+        } },
+        { heading = "⚠ Good to know", color = COLORS.warn, rows = {
+            { "!", "Low-grade weapons or a laggy connection make the script slower and less accurate. You'll be warned." },
+            { "!", "This script is still in beta, so expect some bugs." },
+        } },
+    })
+    UI2.seen = function()
+        local ok, v = pcall(function() return isfile and isfile("ExoticaMacros_guide_seen.txt") end)
+        return (ok and v) and true or (AutoFixMemory.guideSeen == true)
+    end
+    UI2.mark = function()
+        AutoFixMemory.guideSeen = true
+        pcall(function() if writefile then writefile("ExoticaMacros_guide_seen.txt", "1") end end)
+    end
 
     ------------------------------------------------------------
     -- Slot Glow: pulsing highlight around the hotbar slots each weapon belongs in.
@@ -5494,6 +5631,7 @@ pcall(function()
             { kind = "acc", tier = 88, any = { "blastbow" } },
             { kind = "acc", tier = 87, any = { "apexshield" } },
             { kind = "acc", tier = 80, any = { "spikedpurse", "spikepurse" } },
+            { kind = "acc", tier = 80, any = { "purrseofdoom", "pursedoom", "doompurse", "purseofdoom" } },
             { kind = "acc", tier = 78, any = { "nightmarepurse" } },
             { kind = "acc", tier = 60, any = { "freezegun" } },
             { kind = "acc", tier = 58, any = { "reindeerpurse" } },
@@ -5506,16 +5644,19 @@ pcall(function()
             { kind = "acc", tier = 25, any = { "totebag" } },
             { kind = "acc", tier = 20, any = { "lovebaton" } },
             { kind = "acc", tier = 15, any = { "dogpurse" } },
+            -- any other purse or handbag skin (skins have their own names, e.g. "Purrse of Doom")
+            { kind = "acc", tier = 70, any = { "purse", "purrse", "handbag", "clutch" } },
             -- equippables: clicked on once per spawn (best of the knuckle group only)
             { kind = "equip", group = "knuckle", tier = 4, any = { "spikeknuckle" } },
             { kind = "equip", group = "knuckle", tier = 3, any = { "brassknuckle" } },
             { kind = "equip", group = "knuckle", tier = 2, any = { "championglove" } },
             { kind = "equip", group = "knuckle", tier = 1, any = { "poisonknuckle" } },
             { kind = "equip", group = "boots", tier = 1, any = { "spikeboot", "spikedboot" } },
+            { kind = "equip", group = "gorilla", tier = 1, any = { "gorilla" } },
             { kind = "equip", group = "cloak", tier = 1, any = { "grimreaper", "reapercloak" } },
             { kind = "equip", group = "crown", tier = 1, any = { "icecrown", "queencrown", "icequeen" } },
             -- fixed-slot weapons (known so they are never mistaken for accessories)
-            { kind = "fixed", any = { "loveboard" } },
+            { kind = "loveboard", any = { "loveboard", "board" } }, -- Loveboard and its skins (e.g. "Cursed Board")
             { kind = "fixed", all = { "golden", "snowball" } },
             { kind = "fixed", any = { "snowball" } },
             -- never the Fist: Tidal Fists
@@ -5541,15 +5682,46 @@ pcall(function()
             return nil
         end
 
+        -- a tool's own name can be a skin name ("Purrse of Doom"), so when the name isn't recognised the text the game
+        -- stores on the tool (attributes, string values) is tried too, in case it names the base weapon
+        local toolClassCache = setmetatable({}, { __mode = "k" })
+        local unknownSeen = {}
+        WEAPONS.tool = function(t)
+            local c = toolClassCache[t]
+            if c then return c end
+            local e = classify(t.Name)
+            if not e then
+                pcall(function()
+                    for _, v in pairs(t:GetAttributes()) do
+                        if type(v) == "string" and not e then e = classify(v) end
+                    end
+                    for _, ch in ipairs(t:GetChildren()) do
+                        if ch:IsA("StringValue") and not e then e = classify(ch.Value) end
+                    end
+                end)
+            end
+            if e then toolClassCache[t] = e
+            elseif not unknownSeen[t.Name] then
+                unknownSeen[t.Name] = true
+                local parts = {}
+                pcall(function() for k, v in pairs(t:GetAttributes()) do parts[#parts + 1] = tostring(k) .. "=" .. tostring(v) end end)
+                warn("[AutoFix] unrecognised tool:", t.Name, #parts > 0 and ("| attributes: " .. table.concat(parts, ", ")) or "")
+            end
+            return e
+        end
+
         local PLAN = { slotTool = {}, accessory = {}, equip = {}, equipAll = {}, owned = {}, allTools = {} }
         local function planWeapons(tools)
             local rpg, taser, fist
             local dps, acc, equips = {}, {}, {}
             local hasKnuckle = false
+            local board
             for _, t in ipairs(tools) do
-                local e = classify(t.Name)
+                local e = WEAPONS.tool(t)
                 if e then
-                    if e.kind == "rpg" then
+                    if e.kind == "loveboard" then
+                        board = board or t
+                    elseif e.kind == "rpg" then
                         if not rpg or e.tier > rpg.e.tier then rpg = { t = t, e = e } end
                     elseif e.kind == "taser" then taser = taser or t
                     elseif e.kind == "fist" then fist = fist or t
@@ -5564,11 +5736,12 @@ pcall(function()
             local out = { slotTool = {}, accessory = {}, equip = {}, equipAll = {}, owned = {}, allTools = {} }
             for _, t in ipairs(tools) do out.allTools[#out.allTools + 1] = t end
             for _, t in ipairs(tools) do
-                local e0 = classify(t.Name)
+                local e0 = WEAPONS.tool(t)
                 if e0 and e0.kind ~= "skip" then out.owned[#out.owned + 1] = t end
             end
             for _, q in ipairs(equips) do out.equipAll[#out.equipAll + 1] = q.t end
             if rpg then out.slotTool["5"] = rpg.t end
+            if board then out.slotTool["6"] = board end
             if taser then out.slotTool["1"] = taser end
 
             local pool = {}
@@ -5617,14 +5790,14 @@ pcall(function()
                 local cur = bestOf[q.e.group]
                 if not cur or q.e.tier > cur.e.tier then bestOf[q.e.group] = q end
             end
-            for _, grp in ipairs({ "knuckle", "boots", "cloak", "crown" }) do
+            for _, grp in ipairs({ "knuckle", "boots", "cloak", "crown", "gorilla" }) do
                 if bestOf[grp] then out.equip[#out.equip + 1] = bestOf[grp].t end
             end
             return out
         end
 
         local function shortToolName(t)
-            local e = classify(t.Name)
+            local e = WEAPONS.tool(t)
             if e and e.kind == "fist" then return "Fist" end
             return t.Name:sub(1, 14)
         end
@@ -5673,6 +5846,10 @@ pcall(function()
                             g.label = slot .. " · " .. (t and shortToolName(t) or ((SHORT[slot]) or "none"))
                         end
                     end
+                end
+                if plan.slotTool["6"] then -- Loveboard (or one of its skins) is in slot 6, whatever it's called
+                    PLANNED["6"] = true
+                    CANDS["6"] = { plan.slotTool["6"].Name }
                 end
             end
             local result = {}
@@ -5905,7 +6082,7 @@ pcall(function()
         ------------------------------------------------------------
         local MAXTRIES = 6 -- one try per way of moving an item (see moveWith)
         local autoFix = { busy = false, tries = {}, openSince = 0, nextTick = 0, nextClosed = 0, cool = 0,
-            closedCycles = 0, badStreak = 0, silent = false, key = nil, method = AutoFixMemory.method, addInset = AutoFixMemory.addInset, calibrated = (AutoFixMemory.addInset ~= nil),
+            closedCycles = 0, badStreak = 0, forceUntil = 0, lastPrompt = -1000, silent = false, key = nil, method = AutoFixMemory.method, addInset = AutoFixMemory.addInset, calibrated = (AutoFixMemory.addInset ~= nil),
             equipDone = {}, equipTries = {}, rearmAt = 0, relaxUntil = 0,
             lastFailSig = "", lastFailAt = 0 }
         local GuiService_ = game:GetService("GuiService")
@@ -6168,7 +6345,7 @@ pcall(function()
             if not (g.frame and g.frame.Parent) then return false end
             for _, tool in ipairs(PLAN.allTools) do
                 if cellMatchesTool(g.frame, tool) then
-                    local e = classify(tool.Name)
+                    local e = WEAPONS.tool(tool)
                     return not (e ~= nil and e.kind == "acc")
                 end
             end
@@ -6256,10 +6433,58 @@ pcall(function()
                             if cellMatchesTool(g.frame, tool) then holdsGear = true break end
                         end
                         -- right item (by name or picture) = leave it. Anything else, known or not, goes back.
-                        if not holdsGear and not cellIsItemFor(g.frame, g.slot) then return g end
+                        if not holdsGear and not cellIsItemFor(g.frame, g.slot) then
+                            if g.slot == "6" or g.slot == "7" or g.slot == "9" then
+                                -- Loveboard / Snowball Launcher skins carry their own names, so in these three slots only
+                                -- things positively known to belong elsewhere are moved
+                                for _, tool in ipairs(PLAN.owned) do
+                                    if cellMatchesTool(g.frame, tool) then return g end
+                                end
+                            else
+                                return g
+                            end
+                        end
                     end
                 end
             end
+            return nil
+        end
+
+        -- true while you've told it to "fix now" (tap the prompt): it then ignores the idle / fight checks
+        autoFix.forced = function() return os.clock() < autoFix.forceUntil end
+
+        -- would a click at the centre of this cell really land on it? (checked against what's on screen right now)
+        autoFix.hits = function(pt, cell)
+            local pg = p:FindFirstChildOfClass("PlayerGui")
+            if not (pg and cell and cell.Parent and cell:IsDescendantOf(pg)) then return true end -- can't check: allow
+            local a = autoFix.addInset
+            if a == nil then a = probeInset() end
+            local inset = a and GuiService_:GetGuiInset() or Vector2.new(0, 0)
+            local okq, list = pcall(function() return pg:GetGuiObjectsAtPosition(pt.X - inset.X, pt.Y - inset.Y) end)
+            if not okq then return true end
+            for _, o in ipairs(list) do
+                if o == cell or o:IsDescendantOf(cell) then return true end
+            end
+            return false
+        end
+        -- the click point for a cell, verified. If it would miss (screen shifted, offset wrong), the offset is
+        -- re-measured once; if it still misses, the move is skipped instead of clicking somewhere random.
+        autoFix.safePoint = function(cell)
+            if not (cell and cell.Parent) then return nil end
+            local sz = cell.AbsoluteSize
+            if sz.X < 4 or sz.Y < 4 then return nil end
+            local pt = cellCenter(cell)
+            local cam = workspace.CurrentCamera
+            local function inScreen(v)
+                return not cam or (v.X >= 0 and v.Y >= 0 and v.X <= cam.ViewportSize.X and v.Y <= cam.ViewportSize.Y)
+            end
+            if inScreen(pt) and autoFix.hits(pt, cell) then return pt end
+            autoFix.addInset, autoFix.calibrated = nil, false
+            AutoFixMemory.addInset = nil
+            calibrateOffset(cell)
+            pt = cellCenter(cell)
+            if inScreen(pt) and autoFix.hits(pt, cell) then return pt end
+            afLog("the click would have missed", cell.Name, "- skipped that move")
             return nil
         end
 
@@ -6614,7 +6839,9 @@ pcall(function()
             if not cell then afLog(tool.Name .. ": not found on the hotbar or in the backpack screen") return false end
             afLog(tool.Name .. ": found on the " .. where)
             calibrateOffset(cell)
-            tapAt(cellCenter(cell)) -- click the item
+            local tapPt = autoFix.safePoint(cell)
+            if not tapPt then afLog(tool.Name, ": couldn't aim a safe click at it, skipped") return false end
+            tapAt(tapPt) -- click the item
             task.wait(0.08)
             -- click off onto the empty screen. If a button or panel is on that spot, the click goes through it
             -- to what's behind it (the same click-through the aim assist uses), so it can never press a UI.
@@ -6696,7 +6923,7 @@ pcall(function()
                 for _ = 1, 6 do
                     if not (AutoFixEnabled and AutoEquipEnabled) then break end
                     if not (opened or autoOpen) then break end
-                    if not equipOnly and (os.clock() - LastUserInput < 0.25 or Engine.run ~= nil) then break end
+                    if not equipOnly and not autoFix.forced() and (os.clock() - LastUserInput < 0.25 or Engine.run ~= nil) then break end
                     local tool, hcell = planEquipEvict()
                     if not tool then break end
                     autoFix.grid = nil
@@ -6707,7 +6934,8 @@ pcall(function()
                     autoFix.tries[key] = (autoFix.tries[key] or 0) + 1
                     if not spot then afLog("no empty spot in the backpack to drop", tool.Name, "on") break end
                     calibrateOffset(hcell)
-                    local src = cellCenter(hcell)
+                    local src = autoFix.safePoint(hcell)
+                    if not src then break end
                     local method = ((autoFix.method or (TOUCH_FIRST and 5 or 1)) - 1 + autoFix.tries[key] - 1) % METHODS + 1
                     SynthDragging = true
                     moveWith(method, src, spot)
@@ -6727,7 +6955,7 @@ pcall(function()
                 for _ = 1, (equipOnly and 0 or 12) do
                     if not AutoFixEnabled then break end
                     if not (opened or autoOpen) then break end
-                    if os.clock() - LastUserInput < 0.25 then break end -- you touched something just now: step back
+                    if not autoFix.forced() and os.clock() - LastUserInput < 0.25 then break end -- you touched something just now: step back
                     if Engine.run ~= nil then break end
                     local g, cell = planFix()
                     local evictDst, evictName
@@ -6746,8 +6974,12 @@ pcall(function()
                         end
                     end
                     calibrateOffset(cell)
-                    local src, dst = cellCenter(cell), evictDst or targetCenter(g)
-                    if not (src and dst) then afLog("no screen position for slot", g.slot) break end
+                    local src, dst = autoFix.safePoint(cell), evictDst or targetCenter(g)
+                    if not (src and dst) then afLog("no safe screen position for slot", g.slot) break end
+                    if g.frame and not evictDst and g.frame.Parent and not autoFix.hits(dst, g.frame) then
+                        dst = autoFix.safePoint(g.frame)
+                        if not dst then afLog("the drop point for slot", g.slot, "would have missed, skipped") break end
+                    end
                     local tkey = evictDst and ("e" .. g.slot) or g.slot
                     local tries = (autoFix.tries[tkey] or 0) + 1
                     autoFix.tries[tkey] = tries
@@ -6791,7 +7023,7 @@ pcall(function()
                 for _ = 1, 5 do
                     if not (opened or autoOpen) then break end
                     -- right after a respawn (equipOnly) it equips no matter what you're doing
-                    if not equipOnly and (os.clock() - LastUserInput < 0.25 or Engine.run ~= nil) then break end
+                    if not equipOnly and not autoFix.forced() and (os.clock() - LastUserInput < 0.25 or Engine.run ~= nil) then break end
                     local q = equipQueue()
                     if #q == 0 then break end
                     if equipGear(q[1]) then
@@ -6868,24 +7100,37 @@ pcall(function()
             autoFix.openSince = 0
             autoFix.tries = {}
             if now < autoFix.nextClosed then return end
-            autoFix.nextClosed = now + 1.5
-            if now < autoFix.cool or autoFix.closedCycles >= 3 or HighPing then return end
+            if now < autoFix.cool or autoFix.closedCycles >= 3 or HighPing then
+                autoFix.nextClosed = now + 1.5
+                return
+            end
             -- right after the script starts or you respawn it only needs a short pause; otherwise it waits for a quiet moment
             local idleNeeded = (now < autoFix.relaxUntil) and 1.0 or 3
-            if os.clock() - LastUserInput < idleNeeded or Engine.run ~= nil then return end
-            if os.clock() - LastCombat < 6 then return end -- fighting: wait until it has been quiet for a few seconds
+            local busy = os.clock() - LastUserInput < idleNeeded or Engine.run ~= nil or os.clock() - LastCombat < 6
+            local forced = autoFix.forced()
+            autoFix.nextClosed = now + ((busy and not forced) and 6 or 1.5)
             rescanAll()
             local need = false
             for _, g in ipairs(glows) do
                 if needsFix(g) then need = true break end
             end
             if brassNeeded() or planEvict() or planEquipEvict() then need = true end
+            if busy and not forced then
+                -- you're busy: ask instead of interrupting (tap the prompt to fix now, or it waits for a quiet moment)
+                autoFix.badStreak = need and (autoFix.badStreak + 1) or 0
+                if need and autoFix.badStreak >= 2 and now - autoFix.lastPrompt > 120 then
+                    autoFix.lastPrompt = now
+                    if slotGlow.promptFix then pcall(slotGlow.promptFix) end
+                end
+                return
+            end
             autoFix.badStreak = need and (autoFix.badStreak + 1) or 0
-            if autoFix.badStreak >= 2 then -- the same problem on two checks in a row, so it isn't a blip
+            if autoFix.badStreak >= 2 or (forced and need) then -- the same problem twice in a row, so it isn't a blip
                 autoFix.badStreak = 0
                 task.spawn(runAutoFix, true)
             end
         end
+
 
         -- right after a spawn (and when the script first loads): wait for your tools to arrive, then open the backpack,
         -- equip your knuckles/gear, and close it. This ignores idle and combat checks on purpose.
@@ -7044,6 +7289,45 @@ pcall(function()
         end
 
         local expiry, pinned, alpha, nextCheck, nextResolve, nextWatch, nextIdleScan, nextGuiScan = 0, false, 0, 0, 0, 0, 0, 0
+        function slotGlow.requestFixNow()
+            autoFix.forceUntil = os.clock() + 40
+            autoFix.nextClosed = 0
+            autoFix.cool = 0
+            autoFix.badStreak = 1
+        end
+        -- what the notices use: which required weapons you're missing, and which of your picks are low grade
+        function slotGlow.comboReport()
+            local rep = { ready = false, missing = {}, low = {} }
+            if #PLAN.allTools == 0 then return rep end
+            rep.ready = true
+            local need = {
+                { "1", "a Taser (slot 1)", true }, { "4", "a high-DPS weapon for slot 4", true },
+                { "5", "an RPG (slot 5)", true }, { "8", "your Fist with knuckles, or a high-DPS weapon (slot 8)", true },
+                { "0", "a high-DPS weapon for slot 0", true },
+                { "6", "the Loveboard (slot 6)", false }, { "7", "the Golden Snowball Launcher (slot 7)", false },
+                { "9", "the Snowball Launcher (slot 9)", false },
+            }
+            for _, n in ipairs(need) do
+                local have
+                if n[3] then have = PLAN.slotTool[n[1]] ~= nil else have = expected[n[1]] and expected[n[1]].found end
+                if not have then rep.missing[#rep.missing + 1] = n[2] end
+            end
+            local hasKnuckle = false
+            for _, t in ipairs(PLAN.equipAll) do
+                local e = WEAPONS.tool(t)
+                if e and e.group == "knuckle" then hasKnuckle = true end
+            end
+            for _, slot in ipairs({ "4", "8", "0" }) do
+                local t = PLAN.slotTool[slot]
+                local e = t and WEAPONS.tool(t)
+                if e and e.kind == "dps" and e.tier <= 50 then
+                    rep.low[#rep.low + 1] = t.Name
+                elseif e and e.kind == "fist" and not hasKnuckle then
+                    rep.low[#rep.low + 1] = "Fist without knuckles"
+                end
+            end
+            return rep
+        end
         function slotGlow.flash(seconds) expiry = math.max(expiry, clock() + seconds) end
         function slotGlow.pin(on) pinned = on end
 
@@ -7152,12 +7436,31 @@ pcall(function()
         local xOff = fitsRight and (px.Offset + PANEL_W + 10) or (px.Offset - TIER_W - 10)
         tiers.Position = UDim2.new(px.Scale, xOff, py.Scale, py.Offset)
         if infoCtrl.open then infoCtrl.hide() slotGlow.pin(false) end -- one side panel at a time
+        if UI2.guide.ctrl.open then UI2.guide.ctrl.hide() end
         if not tiersCtrl.open then tiersCtrl.show() end
     end
+
+    UI2.openGuide = function()
+        local screen = sg.AbsoluteSize
+        local g = UI2.guide
+        local h = math.min(g.contentH + 64, screen.Y * 0.85)
+        g.panel.Size = UDim2.new(0, g.W, 0, h)
+        local px, py = main.Position.X, main.Position.Y
+        local fitsRight = (main.AbsolutePosition.X + PANEL_W + 10 + g.W) <= screen.X
+        local xOff = fitsRight and (px.Offset + PANEL_W + 10) or (px.Offset - g.W - 10)
+        g.panel.Position = UDim2.new(px.Scale, xOff, py.Scale, py.Offset)
+        if infoCtrl.open then infoCtrl.hide() slotGlow.pin(false) end -- one side panel at a time
+        if tiersCtrl.open then tiersCtrl.hide() end
+        if not g.ctrl.open then g.ctrl.show() end
+    end
+    guideBtn.Activated:Connect(function()
+        if UI2.guide.ctrl.open then UI2.guide.ctrl.hide() else UI2.openGuide() end
+    end)
 
     infoBtn.Activated:Connect(function()
         if infoCtrl.open then infoCtrl.hide() slotGlow.pin(false) else
             if tiersCtrl.open then tiersCtrl.hide() end
+            if UI2.guide.ctrl.open then UI2.guide.ctrl.hide() end
             openInfo()
         end
     end)
@@ -7170,6 +7473,7 @@ pcall(function()
         mainCtrl.hide()
         infoCtrl.hide(true)
         tiersCtrl.hide(true)
+        UI2.guide.ctrl.hide(true)
         slotGlow.pin(false)
     end)
 
@@ -7436,11 +7740,20 @@ pcall(function()
     toggleBtn.Activated:Connect(function()
         if toggleState.moved then return end
         mainCtrl.toggle()
-        if not mainCtrl.open then infoCtrl.hide(true) tiersCtrl.hide(true) slotGlow.pin(false) end
+        if not mainCtrl.open then infoCtrl.hide(true) tiersCtrl.hide(true) UI2.guide.ctrl.hide(true) slotGlow.pin(false) end
     end)
 
     mainCtrl.show(true)
     playStartupChime()
+    -- the very first time the script is ever run: show the "How To Use" guide (remembered, so it only happens once)
+    if not UI2.seen() then
+        task.delay(2.5, function()
+            if mainCtrl.open then
+                UI2.mark()
+                UI2.openGuide()
+            end
+        end)
+    end
 
     -- High-ping watch: when your connection lags, the aim assist and Auto Slot Fix get slower and less accurate,
     -- so you're told once (and the backpack visits pause until it recovers).
@@ -7485,6 +7798,76 @@ pcall(function()
         end
     end)
 
+    -- Asked when weapons are out of place and you're busy: tap it to fix them right now, or it waits for a quiet moment
+    slotGlow.promptFix = function()
+        showNotification({
+            title = "Weapons In The Wrong Slots",
+            badge = "!",
+            color = COLORS.warn,
+            width = 330,
+            duration = 14,
+            hint = "Tap to fix them now",
+            sounds = { "popup" },
+            onTap = function() slotGlow.requestFixNow() end,
+            items = {
+                "Some of your weapons aren't in the right slots.",
+                "Tap here and I'll stop and fix them now, or I'll wait until you're not busy.",
+            },
+        })
+    end
+
+    -- Weapon check, once per load, when things are quiet: missing weapons first, then low-grade picks
+    task.spawn(function()
+        task.wait(45)
+        local shownMissing, shownLow = false, false
+        for _ = 1, 240 do
+            local rep = slotGlow.comboReport()
+            if rep.ready then
+                if #rep.missing == 0 and #rep.low == 0 then return end
+                local quiet = activeToast == nil and os.clock() - LastUserInput > 5 and os.clock() - LastCombat > 8
+                if quiet then
+                    if #rep.missing > 0 and not shownMissing then
+                        shownMissing = true
+                        local list = {}
+                        for i = 1, math.min(#rep.missing, 5) do list[#list + 1] = rep.missing[i] end
+                        pcall(showNotification, {
+                            title = "Incompatible Weapons Detected",
+                            badge = "!",
+                            color = COLORS.warn,
+                            width = 340,
+                            duration = 16,
+                            hint = "Weapon combo screen",
+                            sounds = { "popup", "warning" },
+                            items = {
+                                "The script may not work properly because you don't have the required weapons in your slots.",
+                                "Missing: " .. table.concat(list, ", ") .. ".",
+                                "Go to the weapon combo screen to get the weapons you need.",
+                            },
+                        })
+                    elseif #rep.low > 0 and not shownLow then
+                        shownLow = true
+                        pcall(showNotification, {
+                            title = "Low-Grade Combo Detected",
+                            badge = "!",
+                            color = COLORS.warn,
+                            width = 340,
+                            duration = 14,
+                            hint = "Weapon Tiers menu",
+                            sounds = { "popup" },
+                            items = {
+                                "Your combo uses low-grade weapons: " .. table.concat(rep.low, ", ") .. ".",
+                                "Performance and results will be weaker than they could be. Get better weapons for the best experience.",
+                                "Open Weapon Tiers in the menu to see what's best.",
+                            },
+                        })
+                    end
+                    if (shownMissing or #rep.missing == 0) and (shownLow or #rep.low == 0) then return end
+                end
+            end
+            task.wait(4)
+        end
+    end)
+
     -- What's-new notice, shown every time the script starts, but never right away: it waits until
     -- you've been idle for a few seconds (no taps, clicks, movement or macros) and nothing else is on
     -- screen, so it can actually be read. It is the lowest priority banner: if another one (slot
@@ -7522,12 +7905,14 @@ pcall(function()
                 end
             end,
             items = {
-                "Auto Slot Fix: your hotbar is sorted for you when you open your backpack, after you respawn, and when you're idle. Never mid-fight.",
-                "Smarter picks: the best weapon you own goes in each slot. A new Taser or a better weapon is swapped in as soon as it shows up.",
-                "Every slot only holds what belongs in it. Anything else, even items the script doesn't know (Phone, Spray), goes back to your inventory.",
-                "Gear (knuckles, gloves, boots, cloak, crown) is equipped on every respawn and kept off your hotbar.",
-                "The assist never clicks UI. Aim Mode starts on Classic, since Smart is still in beta.",
-                "New Weapon Tiers menu, switches for Auto Slot Fix, Auto Accessories and Auto Equip, and a warning when your ping is high.",
+                "Auto Slot Fix sorts your hotbar when you open your backpack, after you respawn, and when you're idle. If you're busy it asks first: tap the prompt to fix now.",
+                "Smarter picks: the best weapon you own goes in each slot, skins included (like Purrse of Doom). New Taser, RPG or better weapons are placed as soon as they show up.",
+                "Every slot only holds what belongs in it. Anything else, even items the script doesn't know (Phone, Spray), goes back to your inventory. RPGs and the Loveboard only stay in their own slots.",
+                "Gear (knuckles, gloves, boots, cloak, crown, Gorilla gear) is equipped on every respawn and kept off your hotbar.",
+                "Safer clicks: each move is checked to land on the right slot before it happens.",
+                "Warnings for high ping, missing weapons and low-grade combos.",
+                "New How To Use guide and Weapon Tiers menu, plus switches for Auto Slot Fix, Auto Accessories and Auto Equip.",
+                "The assist never clicks UI, and Aim Mode starts on Classic (Smart is still in beta).",
                 "Still in beta, so expect some bugs. We'll keep fixing as many as we can.",
             },
         })
@@ -7562,84 +7947,6 @@ pcall(function()
             end
         end
     end)
-end)
-
-
--- ==========================================
--- HOTBAR GUARD (Baddies)
--- Cause: the game's BackpackController counts Tool additions to your character. Six in a row with
--- under 0.7s between them trips its anti-spam, which turns the Satchel hotbar off, unequips your
--- tools, and waits 3 seconds. Fast macros trip it, so the hotbar vanishes.
--- Fix 1: neutralise that anti-spam trigger at the source (_disableSpam).
--- Fix 2: a watchdog turns the hotbar back on if it is off for any reason the game's own rules
--- don't call for (driving, duel, arrested, frozen, dress room, and so on stay respected).
--- Set DEBUG = true to print what it did.
--- ==========================================
-task.spawn(function()
-    local GUARD_ENABLED = true
-    local DEBUG = false
-    local function dlog(...) if DEBUG then print("[Exotica HotbarGuard]", ...) end end
-
-    local RS = game:GetService("ReplicatedStorage")
-
-    -- the game's own reasons for hiding the hotbar (copied from its _canEnable check)
-    local LEGIT_BLOCKS = {
-        "Freezed", "BeingDogLeashed", "BeingTombstoneTrapped", "BeingArrested", "USER_DRIVING",
-        "USER_VEHICLE_SITTING", "IN_DRESS_ROOM", "CARRYING_EGG", "UNDERGROUND_FIGHTING", "IsOnDuel",
-        "BeingSchoolLockerTrapped", "IsJuggernautOfRunEvent", "GravityGunEffect", "ChampionRingQueue",
-    }
-    local function legitlyBlocked()
-        for _, a in ipairs(LEGIT_BLOCKS) do
-            if p:GetAttribute(a) then return true end
-        end
-        return false
-    end
-
-    local Satchel, Ctrl
-    pcall(function()
-        local mods = RS:WaitForChild("Modules", 15)
-        Satchel = require(mods:WaitForChild("Satchel", 15))
-    end)
-    pcall(function()
-        local scripts = p:WaitForChild("PlayerScripts", 15)
-        local controllers = scripts:WaitForChild("Controllers", 30)
-        Ctrl = require(controllers:WaitForChild("BackpackController", 30))
-    end)
-
-    -- Fix 1: the anti-spam disable never runs, so no hotbar shutdown and no forced unequip
-    if type(Ctrl) == "table" then
-        Ctrl._disableSpam = function(self)
-            if not GUARD_ENABLED then return end
-            dlog("blocked the game's anti-spam hotbar shutdown")
-        end
-        dlog("BackpackController hooked")
-    else
-        dlog("BackpackController not found; relying on the watchdog")
-    end
-
-    -- Fix 2: watchdog
-    if not Satchel then
-        dlog("Satchel not found")
-        return
-    end
-    while true do
-        task.wait(0.1)
-        if GUARD_ENABLED then
-            local ok, enabled = pcall(function() return Satchel:GetBackpackEnabled() end)
-            if ok and enabled == false and not legitlyBlocked() then
-                local char = p.Character
-                local hum = char and char:FindFirstChildOfClass("Humanoid")
-                if hum and hum.Health > 0 then
-                    pcall(function() Satchel:SetBackpackEnabled(true) end)
-                    if type(Ctrl) == "table" then
-                        Ctrl._enabled = true
-                        Ctrl._spamDelay = false
-                    end
-                    dlog("hotbar was off with no game reason; turned back on")
-                end
-            end
-        end
-    end
 end)
 
 print("Exotica: Master Suite Initialized Successfully!")
