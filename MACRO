@@ -1,4 +1,3 @@
-
 -- [The rest of your obfuscated or normal master script code goes here]
 local UIS = game:GetService("UserInputService")
 local Players = game:GetService("Players")
