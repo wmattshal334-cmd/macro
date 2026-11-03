@@ -37,6 +37,24 @@ local function trace(skip)
     return (debug.traceback("", skip or 2):gsub("\n", " <- "))
 end
 
+
+-- runs one step; if it errors, the error is LOGGED and the rest of the script keeps going
+local function step(name, fn)
+    local ok, err = pcall(fn)
+    if ok then log("step ok:", name) else log("step FAILED:", name, "|", tostring(err)) end
+end
+
+-- sets t[k] = v even if the table is read-only (frozen), when the executor allows it
+local function patch(t, k, v)
+    local ok = pcall(function() t[k] = v end)
+    if ok then return true end
+    pcall(function() if setreadonly then setreadonly(t, false) end end)
+    local ok2, err = pcall(function() t[k] = v end)
+    if ok2 then return true end
+    log("could not patch", k, "|", tostring(err), "| table readonly:", tostring(isreadonly and isreadonly(t)), "| frozen:", tostring(table.isfrozen and table.isfrozen(t)))
+    return false
+end
+
 ------------------------------------------------------------
 -- find the game's pieces
 ------------------------------------------------------------
@@ -104,33 +122,37 @@ end
 ------------------------------------------------------------
 -- 1) Satchel on/off calls, with who called
 ------------------------------------------------------------
-if Satchel then
+step("hook Satchel:SetBackpackEnabled", function()
+    if not Satchel then error("Satchel missing") end
     local orig = Satchel.SetBackpackEnabled
-    Satchel.SetBackpackEnabled = function(self, value, ...)
+    patch(Satchel, "SetBackpackEnabled", function(self, value, ...)
         log("Satchel:SetBackpackEnabled(" .. tostring(value) .. ") | attributes on:", activeAttributes())
         log("   caller:", trace(2))
         return orig(self, value, ...)
-    end
-end
+    end)
+end)
 
 ------------------------------------------------------------
 -- 2) the game's own backpack controller (anti-spam and toggles)
 ------------------------------------------------------------
-if type(Ctrl) == "table" then
+step("hook BackpackController", function()
+    if type(Ctrl) ~= "table" then error("BackpackController missing") end
     for _, name in ipairs({ "_disableSpam", "_toggleBackpackTo", "_disable", "_enable" }) do
         local orig = Ctrl[name]
         if type(orig) == "function" then
-            Ctrl[name] = function(self, a, ...)
+            patch(Ctrl, name, function(self, a, ...)
                 local arg = (name == "_toggleBackpackTo") and (" (" .. tostring(a) .. ")") or ""
                 log("BackpackController." .. name .. arg .. " | _spamDelay:", tostring(self._spamDelay))
                 if name == "_disableSpam" then
                     log("   >>> the game's ANTI-SPAM fired. Too many tool equips in a row.")
                 end
                 return orig(self, a, ...)
-            end
+            end)
+        else
+            log("BackpackController." .. name .. " is not a function:", type(orig))
         end
     end
-end
+end)
 
 ------------------------------------------------------------
 -- 3) calls into the engine we care about (needs an executor with hookmetamethod)
@@ -167,91 +189,94 @@ else
     log("this executor has no hookmetamethod, engine calls will not be logged")
 end
 
-------------------------------------------------------------
--- 4) the visible state of the hotbar itself
-------------------------------------------------------------
-local hooked = setmetatable({}, { __mode = "k" })
-local function hookProp(inst, prop, label)
-    if not inst or hooked[inst] then return end
-    hooked[inst] = true
-    inst:GetPropertyChangedSignal(prop):Connect(function()
-        log(label .. "." .. prop .. " changed to", tostring(inst[prop]))
-        if prop == "Visible" or prop == "Enabled" then
-            if inst[prop] == false then snapshot(label .. " turned OFF") end
+step("listeners", function()
+    ------------------------------------------------------------
+    -- 4) the visible state of the hotbar itself
+    ------------------------------------------------------------
+    local hooked = setmetatable({}, { __mode = "k" })
+    local function hookProp(inst, prop, label)
+        if not inst or hooked[inst] then return end
+        hooked[inst] = true
+        inst:GetPropertyChangedSignal(prop):Connect(function()
+            log(label .. "." .. prop .. " changed to", tostring(inst[prop]))
+            if prop == "Visible" or prop == "Enabled" then
+                if inst[prop] == false then snapshot(label .. " turned OFF") end
+            end
+        end)
+    end
+
+    local function hookGui()
+        local g, backpack, hotbar = getGui()
+        hookProp(g, "Enabled", "BackpackGui")
+        hookProp(backpack, "Visible", "Backpack")
+        hookProp(hotbar, "Visible", "Hotbar")
+        if hotbar then
+            for _, s in ipairs(hotbar:GetChildren()) do hookProp(s, "Visible", "Slot " .. s.Name) end
+        end
+    end
+
+    task.spawn(function()
+        while true do
+            hookGui()
+            task.wait(1)
         end
     end)
-end
 
-local function hookGui()
-    local g, backpack, hotbar = getGui()
-    hookProp(g, "Enabled", "BackpackGui")
-    hookProp(backpack, "Visible", "Backpack")
-    hookProp(hotbar, "Visible", "Hotbar")
-    if hotbar then
-        for _, s in ipairs(hotbar:GetChildren()) do hookProp(s, "Visible", "Slot " .. s.Name) end
-    end
-end
-
-task.spawn(function()
-    while true do
-        hookGui()
-        task.wait(1)
-    end
-end)
-
--- TopbarEnabled has no signal (the game's Heartbeat reads it every frame), so watch it
-local lastTopbar
-RunService.Heartbeat:Connect(function()
-    local ok, v = pcall(function() return StarterGui:GetCore("TopbarEnabled") end)
-    if ok and v ~= lastTopbar then
-        lastTopbar = v
-        log("TopbarEnabled is now", tostring(v))
-        if v == false then snapshot("TopbarEnabled turned OFF") end
-    end
-end)
-
-if Satchel then
-    local lastSatchel
+    -- TopbarEnabled has no signal (the game's Heartbeat reads it every frame), so watch it
+    local lastTopbar
     RunService.Heartbeat:Connect(function()
-        local ok, v = pcall(function() return Satchel:GetBackpackEnabled() end)
-        if ok and v ~= lastSatchel then
-            lastSatchel = v
-            log("Satchel hotbar enabled is now", tostring(v))
-            if v == false then snapshot("Satchel turned OFF") end
+        local ok, v = pcall(function() return StarterGui:GetCore("TopbarEnabled") end)
+        if ok and v ~= lastTopbar then
+            lastTopbar = v
+            log("TopbarEnabled is now", tostring(v))
+            if v == false then snapshot("TopbarEnabled turned OFF") end
         end
     end)
-end
 
-------------------------------------------------------------
--- 5) player attributes (the game's reasons) and your tools
-------------------------------------------------------------
-p.AttributeChanged:Connect(function(name)
-    local v = p:GetAttribute(name)
-    log("player attribute", name, "=", tostring(v))
+    if Satchel then
+        local lastSatchel
+        RunService.Heartbeat:Connect(function()
+            local ok, v = pcall(function() return Satchel:GetBackpackEnabled() end)
+            if ok and v ~= lastSatchel then
+                lastSatchel = v
+                log("Satchel hotbar enabled is now", tostring(v))
+                if v == false then snapshot("Satchel turned OFF") end
+            end
+        end)
+    end
+
+    ------------------------------------------------------------
+    -- 5) player attributes (the game's reasons) and your tools
+    ------------------------------------------------------------
+    p.AttributeChanged:Connect(function(name)
+        local v = p:GetAttribute(name)
+        log("player attribute", name, "=", tostring(v))
+    end)
+
+    local function watchChar(char)
+        if not char then return end
+        char.ChildAdded:Connect(function(c) if c:IsA("Tool") then log("EQUIPPED  ", c.Name) end end)
+        char.ChildRemoved:Connect(function(c) if c:IsA("Tool") then log("UNEQUIPPED", c.Name) end end)
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then hum.Died:Connect(function() log("character died") end) end
+    end
+    watchChar(p.Character)
+    p.CharacterAdded:Connect(function(c) log("character respawned") watchChar(c) end)
+
+    local bpFolder = p:FindFirstChildOfClass("Backpack")
+    if bpFolder then
+        bpFolder.ChildAdded:Connect(function(c) if c:IsA("Tool") then log("backpack +", c.Name) end end)
+        bpFolder.ChildRemoved:Connect(function(c) if c:IsA("Tool") then log("backpack -", c.Name) end end)
+    end
+
+    ------------------------------------------------------------
+    -- manual snapshot key
+    ------------------------------------------------------------
+    UIS.InputBegan:Connect(function(input, gpe)
+        if input.KeyCode == Enum.KeyCode.RightShift then snapshot("manual (RightShift)") end
+    end)
+
+    snapshot("start")
+    log("Listening. Equip a lot of tools fast until the hotbar disappears, then send me Exotica_Hotbar_Diagnostic.txt (or the console lines starting with HotbarDiag).")
+
 end)
-
-local function watchChar(char)
-    if not char then return end
-    char.ChildAdded:Connect(function(c) if c:IsA("Tool") then log("EQUIPPED  ", c.Name) end end)
-    char.ChildRemoved:Connect(function(c) if c:IsA("Tool") then log("UNEQUIPPED", c.Name) end end)
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if hum then hum.Died:Connect(function() log("character died") end) end
-end
-watchChar(p.Character)
-p.CharacterAdded:Connect(function(c) log("character respawned") watchChar(c) end)
-
-local bpFolder = p:FindFirstChildOfClass("Backpack")
-if bpFolder then
-    bpFolder.ChildAdded:Connect(function(c) if c:IsA("Tool") then log("backpack +", c.Name) end end)
-    bpFolder.ChildRemoved:Connect(function(c) if c:IsA("Tool") then log("backpack -", c.Name) end end)
-end
-
-------------------------------------------------------------
--- manual snapshot key
-------------------------------------------------------------
-UIS.InputBegan:Connect(function(input, gpe)
-    if input.KeyCode == Enum.KeyCode.RightShift then snapshot("manual (RightShift)") end
-end)
-
-snapshot("start")
-log("Listening. Equip a lot of tools fast until the hotbar disappears, then send me Exotica_Hotbar_Diagnostic.txt (or the console lines starting with HotbarDiag).")
