@@ -163,9 +163,9 @@ if hookmetamethod and getnamecallmethod then
         old = hookmetamethod(game, "__namecall", (newcclosure or function(f) return f end)(function(self, ...)
             local m = getnamecallmethod()
             if m == "UnequipTools" or m == "SetCore" or m == "SetCoreGuiEnabled" then
+                local a, b = ... -- read the arguments here: a nested function can't use "..."
                 pcall(function()
                     local ok = true
-                    local a, b = ...
                     if m == "SetCore" then
                         ok = (a == "TopbarEnabled")
                     elseif m == "SetCoreGuiEnabled" then
