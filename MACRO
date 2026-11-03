@@ -138,6 +138,7 @@ task.spawn(function()
 
     local equippedAt = setmetatable({}, { __mode = "k" })
     local restoreLog = setmetatable({}, { __mode = "k" })
+    local keepState = setmetatable({}, { __mode = "k" }) -- per tool: how many quick put-backs got pulled out again
 
     local function safeToRestore(char)
         local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -171,7 +172,14 @@ task.spawn(function()
             local now = os.clock()
             if now - t > 0.6 then return end                -- only a tool that was JUST equipped
             if lastUnequipAsk > t + 0.02 then return end    -- unequipped on purpose by you / the hotbar / your macro
-            local waitFor = math.max(0.06, (lastToolAdd + KEEPER_WAIT) - now)
+            -- first try is quick. If the tool gets pulled out AGAIN right after a put-back, the quick way is not
+            -- working, so each further try waits longer (0.06s, then KEEPER_WAIT, then twice that).
+            local st = keepState[c] or { n = 0, at = -10 }
+            keepState[c] = st
+            if now - st.at < 0.4 then st.n = st.n + 1 else st.n = 0 end
+            local ladder = { 0.06, KEEPER_WAIT, KEEPER_WAIT * 2 }
+            local want = ladder[math.min(st.n + 1, #ladder)]
+            local waitFor = math.max(0.06, (lastToolAdd + want) - now)
             task.delay(waitFor, function()
                 local ok, hum = safeToRestore(char)
                 if not ok then return end
@@ -187,6 +195,7 @@ task.spawn(function()
                 log2[#log2 + 1] = os.clock()
                 restoreLog[c] = log2
                 pcall(function() hum:EquipTool(c) end)
+                st.at = os.clock()
                 dlog("KEEPER put", c.Name, "back in your hand after waiting", math.floor(waitFor * 1000), "ms (it was pulled out", math.floor((now - t) * 1000), "ms after you equipped it)")
             end)
         end)
