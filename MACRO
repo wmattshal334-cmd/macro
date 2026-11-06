@@ -854,7 +854,7 @@ local AutoEquipEnabled = true -- the "Auto Equip" switch flips this
 
 -- Saved settings: everything you switch on or off is remembered between sessions (auto-save, or the Save button).
 local CONFIG_FILE = "ExoticaMacros_config.json"
-local ConfigStore = { autosave = true, evictUnknown = false, hotbarGuard = true, lastEquip = 0 }
+local ConfigStore = { autosave = true, evictUnknown = false, hotbarGuard = true, lastEquip = 0, bright = true }
 -- Hotbar Guard: the script spaces out its own equips so the game's spam check never trips (waits only on script threads)
 ConfigStore.pace = function()
     if ConfigStore.hotbarGuard ~= false then
@@ -874,7 +874,7 @@ ConfigStore.collect = function()
         speedAuto = AssistSettings.SpeedAuto, manualSpeed = AssistSettings.ManualSpeed,
         customSmoothing = AssistSettings.CustomSmoothing, customLead = AssistSettings.CustomLead,
         sounds = SoundsEnabled, autoFix = AutoFixEnabled, autoAccessories = AutoAccessoryEnabled, autoEquip = AutoEquipEnabled,
-        clickMode = ClickMode, evictUnknown = ConfigStore.evictUnknown, hotbarGuard = ConfigStore.hotbarGuard,
+        clickMode = ClickMode, evictUnknown = ConfigStore.evictUnknown, hotbarGuard = ConfigStore.hotbarGuard, bright = ConfigStore.bright,
         crossOn = AssistSettings.CrossOn, crossX = AssistSettings.CrossFrac.X, crossY = AssistSettings.CrossFrac.Y,
     }
 end
@@ -916,6 +916,7 @@ ConfigStore.load = function()
     if d.clickMode == "Mouse" or d.clickMode == "Tap" or d.clickMode == "Tool" then ClickMode = d.clickMode end
     ConfigStore.evictUnknown = b(d.evictUnknown, false)
     ConfigStore.hotbarGuard = b(d.hotbarGuard, true)
+    ConfigStore.bright = b(d.bright, true)
     AssistSettings.CrossOn = b(d.crossOn, false)
     if type(d.crossX) == "number" and type(d.crossY) == "number" then
         AssistSettings.CrossFrac = Vector2.new(math.clamp(d.crossX, 0.03, 0.97), math.clamp(d.crossY, 0.03, 0.97))
@@ -4282,19 +4283,39 @@ local function playStartupChime()
     playEmbedded("startup", 0.7, 1, nil, true)
 end
 
-local COLORS = {
-    glass = Color3.fromRGB(28, 30, 40),
-    white = Color3.fromRGB(255, 255, 255),
-    subtext = Color3.fromRGB(200, 205, 220),
-    muted = Color3.fromRGB(160, 166, 185),
-    blue = Color3.fromRGB(10, 132, 255),
-    accent = Color3.fromRGB(90, 180, 255),   -- light iOS blue: key text, values, weapons group
-    accent2 = Color3.fromRGB(190, 130, 255), -- violet: combo slots group
-    warn = Color3.fromRGB(255, 190, 70),     -- amber: slot warning
-    green = Color3.fromRGB(48, 209, 88),
-    red = Color3.fromRGB(255, 95, 87),
-    gray = Color3.fromRGB(120, 120, 130),
-}
+local BRIGHT = ConfigStore.bright ~= false -- bright frosted-glass theme (default); the switch in settings flips it after a re-run
+local COLORS
+if BRIGHT then
+    COLORS = {
+        glass = Color3.fromRGB(246, 248, 255),
+        white = Color3.fromRGB(24, 30, 56),       -- main foreground: ink on light glass (name kept so every element follows the theme)
+        pure = Color3.fromRGB(255, 255, 255),
+        subtext = Color3.fromRGB(84, 94, 124),
+        muted = Color3.fromRGB(124, 134, 162),
+        blue = Color3.fromRGB(20, 110, 240),
+        accent = Color3.fromRGB(52, 104, 240),   -- indigo blue: key text, values, weapons group
+        accent2 = Color3.fromRGB(140, 84, 236),  -- violet: combo slots group
+        warn = Color3.fromRGB(214, 128, 0),      -- amber: slot warning
+        green = Color3.fromRGB(22, 160, 88),
+        red = Color3.fromRGB(226, 72, 62),
+        gray = Color3.fromRGB(160, 168, 190),
+    }
+else
+    COLORS = {
+        glass = Color3.fromRGB(28, 30, 40),
+        white = Color3.fromRGB(255, 255, 255),
+        pure = Color3.fromRGB(255, 255, 255),
+        subtext = Color3.fromRGB(200, 205, 220),
+        muted = Color3.fromRGB(160, 166, 185),
+        blue = Color3.fromRGB(10, 132, 255),
+        accent = Color3.fromRGB(90, 180, 255),
+        accent2 = Color3.fromRGB(190, 130, 255),
+        warn = Color3.fromRGB(255, 190, 70),
+        green = Color3.fromRGB(48, 209, 88),
+        red = Color3.fromRGB(255, 95, 87),
+        gray = Color3.fromRGB(120, 120, 130),
+    }
+end
 
 local function corner(obj, r)
     local c = Instance.new("UICorner")
@@ -4337,7 +4358,7 @@ end
 local function makeGlass(parent, radius)
     local frame = Instance.new("Frame")
     frame.BackgroundColor3 = COLORS.glass
-    frame.BackgroundTransparency = 0.15
+    frame.BackgroundTransparency = BRIGHT and 0.06 or 0.15
     frame.BorderSizePixel = 0
     frame.Parent = parent
     corner(frame, radius)
@@ -4345,7 +4366,7 @@ local function makeGlass(parent, radius)
     local sheenFrame = Instance.new("Frame")
     sheenFrame.Name = "Sheen"
     sheenFrame.Size = UDim2.new(1, 0, 1, 0)
-    sheenFrame.BackgroundColor3 = COLORS.white
+    sheenFrame.BackgroundColor3 = COLORS.pure
     sheenFrame.BorderSizePixel = 0
     sheenFrame.Parent = frame
     corner(sheenFrame, radius)
@@ -4361,9 +4382,25 @@ local function makeGlass(parent, radius)
         NumberSequenceKeypoint.new(0.5, 0.92),
         NumberSequenceKeypoint.new(1, 0.85),
     })
+    if BRIGHT then -- light frosted sheen: white at the top-left, a faint blue tint at the bottom-right
+        sheen.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+            ColorSequenceKeypoint.new(0.6, Color3.fromRGB(238, 243, 255)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(214, 224, 252)),
+        })
+        sheen.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.2),
+            NumberSequenceKeypoint.new(0.5, 0.55),
+            NumberSequenceKeypoint.new(1, 0.4),
+        })
+    end
     sheen.Parent = sheenFrame
 
-    edgeGradient(stroke(frame, COLORS.white, 0.55, 1.25))
+    if BRIGHT then
+        edgeGradient(stroke(frame, Color3.fromRGB(176, 192, 238), 0.15, 1.25))
+    else
+        edgeGradient(stroke(frame, COLORS.white, 0.55, 1.25))
+    end
     return frame
 end
 
@@ -4533,7 +4570,7 @@ xpcall(function()
     toggleBtn.AutoButtonColor = false
     toggleBtn.Parent = sg
     corner(toggleBtn, 23)
-    edgeGradient(stroke(toggleBtn, COLORS.white, 0.5, 1.5))
+    edgeGradient(stroke(toggleBtn, BRIGHT and Color3.fromRGB(176, 192, 238) or COLORS.white, BRIGHT and 0.15 or 0.5, 1.5))
     local toggleState = makeDraggable(toggleBtn, toggleBtn)
 
     ------------------------------------------------------------
@@ -4560,16 +4597,18 @@ xpcall(function()
     makeDraggable(header, main)
 
     newLabel(main, {
-        Size = UDim2.new(1, -90, 0, 24),
-        Position = UDim2.new(0, 45, 0, 14),
+        Size = UDim2.new(1, -146, 0, 24),
+        Position = UDim2.new(0, 46, 0, 12),
         Font = Enum.Font.GothamBold,
         Text = "Exotica Macros",
-        TextSize = 18,
+        TextSize = 16,
+        TextXAlignment = Enum.TextXAlignment.Left,
     })
     newLabel(main, {
-        Size = UDim2.new(1, -40, 0, 16),
-        Position = UDim2.new(0, 20, 0, 38),
+        Size = UDim2.new(1, -60, 0, 16),
+        Position = UDim2.new(0, 46, 0, 38),
         Text = "Tap a key box to rebind",
+        TextXAlignment = Enum.TextXAlignment.Left,
         TextSize = 11,
         TextColor3 = COLORS.subtext,
         TextTransparency = 0.15,
@@ -4701,7 +4740,7 @@ xpcall(function()
         knob.AnchorPoint = Vector2.new(0, 0.5)
         knob.Size = UDim2.new(0, 26, 0, 26)
         knob.Position = initial and UDim2.new(1, -28, 0.5, 0) or UDim2.new(0, 2, 0.5, 0)
-        knob.BackgroundColor3 = COLORS.white
+        knob.BackgroundColor3 = COLORS.pure
         knob.BorderSizePixel = 0
         knob.Parent = track
         corner(knob, 13)
@@ -4761,7 +4800,7 @@ xpcall(function()
         handle.Size = UDim2.new(0, 20, 0, 20)
         handle.AnchorPoint = Vector2.new(0.5, 0.5)
         handle.Position = UDim2.new(startFrac, 0, 0.5, 0)
-        handle.BackgroundColor3 = COLORS.white
+        handle.BackgroundColor3 = COLORS.pure
         handle.BorderSizePixel = 0
         handle.Parent = track
         corner(handle, 10)
@@ -4979,7 +5018,7 @@ xpcall(function()
     markerDot.AnchorPoint = Vector2.new(0.5, 0.5)
     markerDot.Size = UDim2.new(0, 4, 0, 4)
     markerDot.Position = UDim2.new(0.5, 0, 0.5, 0)
-    markerDot.BackgroundColor3 = COLORS.white
+    markerDot.BackgroundColor3 = COLORS.pure
     markerDot.BorderSizePixel = 0
     markerDot.ZIndex = 0
     markerDot.Parent = marker
@@ -5069,6 +5108,14 @@ xpcall(function()
         ConfigStore.hotbarGuard = on
         playEmbedded(on and "click" or "off", 0.7, 1, 1)
     end)
+    makeSwitchRow("☀️ Bright theme (re-run)", ConfigStore.bright ~= false, function(on)
+        ConfigStore.bright = on
+        playEmbedded(on and "click" or "off", 0.7, 1, 1)
+        if showNotification then
+            pcall(showNotification, { title = "Theme saved", badge = "i", color = COLORS.accent, width = 300, duration = 4, sounds = {},
+                items = { "Run the script again to apply the " .. (on and "bright" or "dark") .. " theme." } })
+        end
+    end)
     makeSwitchRow("🧹 Evict unknown items", ConfigStore.evictUnknown == true, function(on)
         ConfigStore.evictUnknown = on
         playEmbedded(on and "click" or "off", 0.7, 1, 1)
@@ -5109,7 +5156,7 @@ xpcall(function()
         dot.Size = UDim2.new(0, 4, 0, 4)
         dot.AnchorPoint = Vector2.new(0.5, 0.5)
         dot.Position = UDim2.new(0.5, 0, 0.5, 0)
-        dot.BackgroundColor3 = COLORS.white
+        dot.BackgroundColor3 = COLORS.pure
         dot.BorderSizePixel = 0
         dot.ZIndex = 71
         dot.Parent = cross
@@ -5379,7 +5426,7 @@ xpcall(function()
                 Position = UDim2.new(0, 40, 0, 0),
                 Text = entry.item,
                 TextSize = 11,
-                TextColor3 = Color3.fromRGB(235, 235, 245),
+                TextColor3 = BRIGHT and Color3.fromRGB(40, 48, 78) or Color3.fromRGB(235, 235, 245),
                 TextWrapped = true,
                 TextXAlignment = Enum.TextXAlignment.Left,
             })
@@ -5530,7 +5577,7 @@ xpcall(function()
                 Position = UDim2.new(0, 44, 0, 0),
                 Text = text,
                 TextSize = 11,
-                TextColor3 = Color3.fromRGB(235, 235, 245),
+                TextColor3 = BRIGHT and Color3.fromRGB(40, 48, 78) or Color3.fromRGB(235, 235, 245),
                 TextWrapped = true,
                 TextXAlignment = Enum.TextXAlignment.Left,
             })
@@ -5625,7 +5672,7 @@ xpcall(function()
                 corner(badge, 12)
                 newLabel(row, {
                     Size = UDim2.new(1, -52, 1, 0), Position = UDim2.new(0, 44, 0, 0), Text = r[2], TextSize = 11,
-                    TextColor3 = Color3.fromRGB(235, 235, 245), TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left,
+                    TextColor3 = BRIGHT and Color3.fromRGB(40, 48, 78) or Color3.fromRGB(235, 235, 245), TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left,
                 })
                 y = y + rowH + 5
             end
@@ -5678,14 +5725,14 @@ xpcall(function()
     do
         local pill = Instance.new("TextButton")
         pill.AnchorPoint = Vector2.new(1, 0)
-        pill.Position = UDim2.new(1, -16, 0, 14)
-        pill.Size = UDim2.new(0, 92, 0, 20)
+        pill.Position = UDim2.new(1, -12, 0, 14)
+        pill.Size = UDim2.new(0, 80, 0, 20)
         pill.BackgroundColor3 = UI2.stage.color
         pill.BackgroundTransparency = 0.8
         pill.BorderSizePixel = 0
         pill.AutoButtonColor = false
         pill.Font = Enum.Font.GothamBold
-        pill.TextSize = 10
+        pill.TextSize = 9
         pill.TextColor3 = UI2.stage.color
         pill.Text = "● v" .. SCRIPT_VERSION .. " " .. string.upper(SCRIPT_STAGE)
         pill.Parent = main
@@ -5947,7 +5994,7 @@ xpcall(function()
             btn.AutoButtonColor = false
             btn.Font = Enum.Font.GothamBold
             btn.TextSize = 12
-            btn.TextColor3 = COLORS.white
+            btn.TextColor3 = COLORS.pure
             btn.Parent = row
             corner(btn, 14)
             return btn
@@ -7928,7 +7975,7 @@ xpcall(function()
             end
             if not container then return nil end
             local ap, az = container.AbsolutePosition, container.AbsoluteSize
-            for _, fy in ipairs({ 0.9, 0.7, 0.5, 0.3, 0.12 }) do
+            for _, fy in ipairs({ 0.12, 0.3, 0.5, 0.7, 0.9 }) do
                 for _, fx in ipairs({ 0.1, 0.3, 0.5, 0.7, 0.9 }) do
                     local px, py = ap.X + az.X * fx, ap.Y + az.Y * fy
                     local clear = true
@@ -9144,7 +9191,11 @@ xpcall(function()
 
         local overlay = Instance.new("Frame")
         overlay.Name = "Loader"
-        overlay.Size = UDim2.new(1, 0, 1, 0)
+        local topInset = 0
+        pcall(function() topInset = game:GetService("GuiService"):GetGuiInset().Y end)
+        if sg.IgnoreGuiInset then topInset = 0 end
+        overlay.Position = UDim2.fromOffset(0, -topInset) -- the menu layer starts below the top bar: reach up over it
+        overlay.Size = UDim2.new(1, 0, 1, topInset)
         overlay.BackgroundColor3 = Color3.new(1, 1, 1)
         overlay.BackgroundTransparency = 1
         overlay.BorderSizePixel = 0
@@ -9159,7 +9210,7 @@ xpcall(function()
 
         local stage = Instance.new("Frame") -- everything lives in here, so it can scale and fade as one
         stage.AnchorPoint = Vector2.new(0.5, 0.5)
-        stage.Position = UDim2.new(0.5, 0, 0.5, -6)
+        stage.Position = UDim2.new(0.5, 0, 0.5, topInset / 2 - 6)
         stage.Size = UDim2.new(0, 460, 0, 460)
         stage.BackgroundTransparency = 1
         stage.ZIndex = 201
@@ -9368,21 +9419,6 @@ xpcall(function()
         if UI2.afterRan then return end -- the safety net and the fallback can both call this
         UI2.afterRan = true
         mainCtrl.show(true)
-        -- every launch: say which version (and stage) is running
-        task.delay(1.4, function()
-            if showNotification then
-                pcall(showNotification, {
-                    title = "Exotica Macros v" .. SCRIPT_VERSION .. " " .. SCRIPT_STAGE,
-                    badge = string.sub(SCRIPT_STAGE, 1, 1),
-                    color = UI2.stage.color,
-                    width = 320,
-                    items = { "You're running version " .. SCRIPT_VERSION .. " (" .. SCRIPT_STAGE .. ").", UI2.stage.text },
-                    hint = "Tap the colored tag in the menu any time",
-                    duration = 5,
-                    sounds = {},
-                })
-            end
-        end)
         -- the very first time the script is ever run: show the "How To Use" guide (remembered, so it only happens once)
         if not UI2.seen() then
             task.delay(2.5, function()
@@ -9834,7 +9870,7 @@ xpcall(function()
             b.AutoButtonColor = false
             b.Font = Enum.Font.GothamBold
             b.TextSize = 11
-            b.TextColor3 = COLORS.white
+            b.TextColor3 = COLORS.pure
             b.Text = text
             b.Parent = parent
             corner(b, h / 2)
@@ -10702,7 +10738,10 @@ xpcall(function()
             return
         end
         updateNoticeDone = true
+        if AutoFixMemory.noticeShown == SCRIPT_VERSION then return end -- already shown this session (re-running the script doesn't repeat it)
+        AutoFixMemory.noticeShown = SCRIPT_VERSION
         local noticeItems = {
+            "3.7: Auto Slot Fix works again (a bug stopped every move), a light bar now travels along the hotbar when weapons are out of order, a new loading screen, and a bright frosted-glass menu theme (switch in settings).",
             "3.6: a new aurora intro, a restyled Custom Macros panel, and a Templates gallery (Snowball Burst, RPG Snipe, Board Swing and more).",
             "3.5: Custom Macros rebuilt: add, reorder and delete steps, set exact wait times, repeat, a live time preview, a Test button, rename and duplicate.",
             "3.4: new cinematic loading screen, a movable aim point, screen buttons always tap on phones, and Auto Slot Fix stays out of fights and only moves items it recognises (switch: Evict unknown items).",
@@ -10726,12 +10765,6 @@ xpcall(function()
             duration = 34,
             hint = "Tap to dismiss",
             sounds = { "reveal" },
-            onClose = function(reason)
-                if reason == "replaced" then -- bumped off by another banner before it was read
-                    updateNoticeDone = false
-                    task.delay(1, function() tryShowUpdateNotice(1) end)
-                end
-            end,
             items = noticeItems,
         })
         if not ok then updateNoticeDone = true end -- a rendering problem must never loop or block anything
