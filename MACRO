@@ -923,6 +923,7 @@ ConfigStore.load = function()
     end
 end
 ConfigStore.load()
+pcall(function() ((getgenv and getgenv()) or _G).__ExoticaHotbarGuardOn = ConfigStore.hotbarGuard ~= false end) -- the guard at the end of the script reads this every 0.1s
 local LastUserInput = os.clock() -- when you last touched the screen/keys (auto-fix waits until you're still)
 local SynthDragging = false -- true only while the script's own virtual drag is running
 local LastCombat = os.clock() - 100 -- last time you fought (took damage, swung a tool, fired a macro)
@@ -4588,6 +4589,51 @@ xpcall(function()
     local mainScale = Instance.new("UIScale")
     mainScale.Parent = main
 
+    -- colour: soft glows behind the list and a gradient banner behind the title
+    do
+        local aurora = Instance.new("Frame")
+        aurora.Name = "Aurora"
+        aurora.Size = UDim2.new(1, 0, 1, 0)
+        aurora.BackgroundTransparency = 1
+        aurora.ClipsDescendants = true
+        aurora.Parent = main
+        corner(aurora, 28)
+        for _, def in ipairs({ { COLORS.accent, 0.95, 0.35, 260, 0.80 }, { COLORS.accent2, 0.02, 0.62, 240, 0.80 }, { COLORS.green, 0.9, 0.95, 200, 0.88 } }) do
+            local b = Instance.new("Frame")
+            b.AnchorPoint = Vector2.new(0.5, 0.5)
+            b.Position = UDim2.new(def[2], 0, def[3], 0)
+            b.Size = UDim2.new(0, def[4], 0, def[4])
+            b.BackgroundColor3 = def[1]
+            b.BackgroundTransparency = def[5]
+            b.BorderSizePixel = 0
+            b.Parent = aurora
+            corner(b, def[4] // 2)
+        end
+        local banner = Instance.new("Frame")
+        banner.Name = "Banner"
+        banner.Size = UDim2.new(1, 0, 0, 66)
+        banner.BackgroundColor3 = Color3.new(1, 1, 1)
+        banner.BorderSizePixel = 0
+        banner.Parent = aurora
+        local bg = Instance.new("UIGradient")
+        bg.Rotation = 18
+        bg.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, COLORS.accent),
+            ColorSequenceKeypoint.new(0.55, COLORS.accent2),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(236, 100, 190)),
+        })
+        bg.Parent = banner
+        local gloss = Instance.new("Frame")
+        gloss.Size = UDim2.new(1, 0, 0.5, 0)
+        gloss.BackgroundColor3 = Color3.new(1, 1, 1)
+        gloss.BorderSizePixel = 0
+        gloss.Parent = banner
+        local gg = Instance.new("UIGradient")
+        gg.Rotation = 90
+        gg.Transparency = NumberSequence.new(0.7, 1)
+        gg.Parent = gloss
+    end
+
     local header = Instance.new("TextButton") -- drag handle
     header.Size = UDim2.new(1, 0, 0, 62)
     header.BackgroundTransparency = 1
@@ -4601,6 +4647,7 @@ xpcall(function()
         Position = UDim2.new(0, 46, 0, 12),
         Font = Enum.Font.GothamBold,
         Text = "Exotica Macros",
+        TextColor3 = COLORS.pure,
         TextSize = 16,
         TextXAlignment = Enum.TextXAlignment.Left,
     })
@@ -4610,8 +4657,8 @@ xpcall(function()
         Text = "Tap a key box to rebind",
         TextXAlignment = Enum.TextXAlignment.Left,
         TextSize = 11,
-        TextColor3 = COLORS.subtext,
-        TextTransparency = 0.15,
+        TextColor3 = COLORS.pure,
+        TextTransparency = 0.12,
     })
 
     local mainClose = Instance.new("TextButton")
@@ -4627,8 +4674,8 @@ xpcall(function()
     -- Scrolling list: AutomaticCanvasSize follows the content height, so showing the
     -- Custom sliders (or anything else) never needs a hand-computed height.
     local container = Instance.new("ScrollingFrame")
-    container.Size = UDim2.new(1, -24, 1, -74)
-    container.Position = UDim2.new(0, 12, 0, 64)
+    container.Size = UDim2.new(1, -24, 1, -82)
+    container.Position = UDim2.new(0, 12, 0, 74)
     container.BackgroundTransparency = 1
     container.BorderSizePixel = 0
     container.ScrollBarThickness = 3
@@ -4651,46 +4698,84 @@ xpcall(function()
     -- small grey section titles, like an iOS grouped list
     local function sectionHeader(text)
         local tint = ({ MACROS = COLORS.accent, ["AIM ASSIST"] = COLORS.accent2, SETUP = COLORS.green })[text] or COLORS.muted
-        local l = newLabel(container, {
-            Size = UDim2.new(0, ROW_W, 0, 18),
+        local holder = Instance.new("Frame")
+        holder.Size = UDim2.new(0, ROW_W, 0, 24)
+        holder.BackgroundTransparency = 1
+        holder.Parent = container
+        local chip = newLabel(holder, {
+            Size = UDim2.new(0, #text * 7 + 26, 0, 20),
+            Position = UDim2.new(0, 2, 0.5, -10),
             Font = Enum.Font.GothamBold,
             Text = text,
             TextSize = 10,
-            TextColor3 = tint,
-            TextXAlignment = Enum.TextXAlignment.Left,
+            TextColor3 = COLORS.pure,
+            BackgroundTransparency = 0,
+            BackgroundColor3 = tint,
         })
-        local pad = Instance.new("UIPadding")
-        pad.PaddingLeft = UDim.new(0, 14)
-        pad.Parent = l
-        local bar = Instance.new("Frame")
-        bar.Size = UDim2.new(0, 3, 0, 10)
-        bar.Position = UDim2.new(0, -8, 0.5, -5)
-        bar.BackgroundColor3 = tint
-        bar.BorderSizePixel = 0
-        bar.Parent = l
-        corner(bar, 2)
+        corner(chip, 10)
+        local cg = Instance.new("UIGradient")
+        cg.Color = ColorSequence.new(tint, Color3.new(tint.R * 0.8 + 0.2 * 0.6, tint.G * 0.8, tint.B * 0.8 + 0.2 * 0.4))
+        cg.Rotation = 0
+        cg.Parent = chip
+        local line = Instance.new("Frame")
+        line.Position = UDim2.new(0, #text * 7 + 36, 0.5, 0)
+        line.Size = UDim2.new(1, -(#text * 7 + 44), 0, 1)
+        line.BackgroundColor3 = tint
+        line.BackgroundTransparency = 0.6
+        line.BorderSizePixel = 0
+        line.Parent = holder
+        local lg = Instance.new("UIGradient")
+        lg.Transparency = NumberSequence.new(0, 1)
+        lg.Parent = line
     end
 
     local function glassRow(height)
         local row = Instance.new("Frame")
         row.Size = UDim2.new(0, ROW_W, 0, height)
-        row.BackgroundColor3 = COLORS.white
-        row.BackgroundTransparency = 0.9
+        row.BackgroundColor3 = BRIGHT and COLORS.pure or COLORS.white
+        row.BackgroundTransparency = BRIGHT and 0.3 or 0.9
         row.BorderSizePixel = 0
         row.Parent = container
         corner(row, 16)
-        stroke(row, COLORS.white, 0.88, 1)
+        stroke(row, BRIGHT and Color3.fromRGB(188, 202, 244) or COLORS.white, BRIGHT and 0.2 or 0.88, 1)
+        local stripe = Instance.new("Frame") -- thin colour bar on the left edge
+        stripe.Size = UDim2.new(0, 3, 0, math.max(14, height - 26))
+        stripe.Position = UDim2.new(0, 5, 0.5, -math.max(14, height - 26) // 2)
+        stripe.BackgroundColor3 = Color3.new(1, 1, 1)
+        stripe.BorderSizePixel = 0
+        stripe.Parent = row
+        corner(stripe, 2)
+        local sgr = Instance.new("UIGradient")
+        sgr.Rotation = 90
+        sgr.Color = ColorSequence.new(COLORS.accent, COLORS.accent2)
+        sgr.Parent = stripe
         return row
     end
 
     local function rowLabel(row, text)
+        local emoji, rest = text:match("^([^%w%s%p]+)%s+(.+)$")
+        local x = 14
+        if emoji and rest then -- the leading emoji becomes a small tinted icon chip
+            x = 46
+            text = rest
+            local chip = Instance.new("Frame")
+            chip.Size = UDim2.new(0, 28, 0, 28)
+            chip.Position = UDim2.new(0, 14, 0.5, -14)
+            chip.BackgroundColor3 = COLORS.accent
+            chip.BackgroundTransparency = 0.85
+            chip.BorderSizePixel = 0
+            chip.Parent = row
+            corner(chip, 9)
+            newLabel(chip, { Size = UDim2.new(1, 0, 1, 0), Text = emoji, TextSize = 15, Font = Enum.Font.GothamBold })
+        end
         return newLabel(row, {
-            Size = UDim2.new(1, -(BTN_W + 30), 1, 0),
-            Position = UDim2.new(0, 14, 0, 0),
+            Size = UDim2.new(1, -(BTN_W + x + 14), 1, 0),
+            Position = UDim2.new(0, x, 0, 0),
             Font = Enum.Font.GothamMedium,
             Text = text,
             TextSize = 13,
             TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd,
         })
     end
 
@@ -4704,8 +4789,8 @@ xpcall(function()
         btn.AnchorPoint = Vector2.new(1, 0.5)
         btn.Size = UDim2.new(0, BTN_W, 0, 30)
         btn.Position = UDim2.new(1, -8, 0.5, 0)
-        btn.BackgroundColor3 = COLORS.white
-        btn.BackgroundTransparency = 0.82
+        btn.BackgroundColor3 = BRIGHT and COLORS.accent or COLORS.white
+        btn.BackgroundTransparency = BRIGHT and 0.86 or 0.82
         btn.BorderSizePixel = 0
         btn.Font = Enum.Font.GothamBold
         btn.Text = btnText
@@ -4715,7 +4800,7 @@ xpcall(function()
         btn.AutoButtonColor = false
         btn.Parent = row
         corner(btn, 15)
-        stroke(btn, COLORS.white, 0.8, 1)
+        stroke(btn, BRIGHT and COLORS.accent or COLORS.white, BRIGHT and 0.55 or 0.8, 1)
         return label, btn
     end
 
@@ -5106,6 +5191,7 @@ xpcall(function()
     end)
     makeSwitchRow("🛡️ Hotbar Guard", ConfigStore.hotbarGuard ~= false, function(on)
         ConfigStore.hotbarGuard = on
+        pcall(function() ((getgenv and getgenv()) or _G).__ExoticaHotbarGuardOn = on end)
         playEmbedded(on and "click" or "off", 0.7, 1, 1)
     end)
     makeSwitchRow("☀️ Bright theme (re-run)", ConfigStore.bright ~= false, function(on)
@@ -5727,8 +5813,8 @@ xpcall(function()
         pill.AnchorPoint = Vector2.new(1, 0)
         pill.Position = UDim2.new(1, -12, 0, 14)
         pill.Size = UDim2.new(0, 80, 0, 20)
-        pill.BackgroundColor3 = UI2.stage.color
-        pill.BackgroundTransparency = 0.8
+        pill.BackgroundColor3 = Color3.new(1, 1, 1)
+        pill.BackgroundTransparency = 0.08
         pill.BorderSizePixel = 0
         pill.AutoButtonColor = false
         pill.Font = Enum.Font.GothamBold
@@ -5737,7 +5823,7 @@ xpcall(function()
         pill.Text = "● v" .. SCRIPT_VERSION .. " " .. string.upper(SCRIPT_STAGE)
         pill.Parent = main
         corner(pill, 10)
-        stroke(pill, UI2.stage.color, 0.5, 1)
+        stroke(pill, Color3.new(1, 1, 1), 0.4, 1)
         pill.Activated:Connect(function()
             playEmbedded("click", 0.6, 1, 0.8)
             if showNotification then
@@ -10823,6 +10909,293 @@ end, function(err)
         t.Parent = g
         task.delay(40, function() g:Destroy() end)
     end)
+end)
+
+-- Exotica Hotbar Guard. Works as its own script, or paste the whole file into your script (before the final print).
+-- It creates no top-level locals, so it cannot push your script over the 200-local limit.
+-- Stops the game's anti-spam from switching your hotbar off and force-unequipping your tools.
+-- ==========================================
+-- HOTBAR GUARD (Baddies)
+-- Cause found in the game's BackpackController: six Tool additions to your character with under 0.7s
+-- between them trips an anti-spam that turns the Satchel hotbar off, force-unequips your tools and
+-- waits 3 seconds. Fast macros trip it.
+-- Fix 1: that anti-spam trigger is neutralised at the source (_disableSpam).
+-- Fix 2: Satchel:SetBackpackEnabled(false) is blocked unless the game has a real reason (driving, duel,
+--        arrested, frozen, dress room...), and a watchdog turns the hotbar back on if it is still off.
+-- Logger: while DEBUG is true, everything that hides the hotbar is printed and saved to
+--        Exotica_Hotbar_Debug.txt (with who called it), so it can be sent for diagnosis.
+-- ==========================================
+task.spawn(function()
+    local p = game:GetService("Players").LocalPlayer
+    local GUARD_ENABLED = true
+    local DEBUG = false -- set true to print what it blocks/paces and save Exotica_Hotbar_Debug.txt
+
+    -- only the newest copy of this guard stays active (running it twice used to make two keepers fight)
+    local env = (getgenv and getgenv()) or _G
+    env.__ExoticaGuardGen = (env.__ExoticaGuardGen or 0) + 1
+    local myGen = env.__ExoticaGuardGen
+
+    -- on/off switch: set getgenv().__ExoticaHotbarGuardOn = false to turn the guard off, true to turn it back on
+    -- (the Exotica panel's "Hotbar Guard" switch does exactly this). Unset = on. When off, everything passes through.
+    task.spawn(function()
+        while true do
+            task.wait(0.1)
+            if env.__ExoticaGuardGen ~= myGen then GUARD_ENABLED = false return end
+            GUARD_ENABLED = (env.__ExoticaHotbarGuardOn ~= false)
+        end
+    end)
+
+    local RS = game:GetService("ReplicatedStorage")
+    local t0 = os.clock()
+    local logLines, flushQueued = {}, false
+    local function dlog(...)
+        if not DEBUG then return end
+        local parts = { string.format("[%7.2f]", os.clock() - t0) }
+        for _, v in ipairs({ ... }) do parts[#parts + 1] = tostring(v) end
+        local line = table.concat(parts, " ")
+        print("[Exotica HotbarGuard]", line)
+        logLines[#logLines + 1] = line
+        if #logLines > 400 then table.remove(logLines, 1) end
+        if writefile and not flushQueued then
+            flushQueued = true
+            task.delay(1.5, function()
+                flushQueued = false
+                pcall(writefile, "Exotica_Hotbar_Debug.txt", table.concat(logLines, "\n"))
+            end)
+        end
+    end
+
+    local LEGIT_BLOCKS = {
+        "Freezed", "BeingDogLeashed", "BeingTombstoneTrapped", "BeingArrested", "USER_DRIVING",
+        "USER_VEHICLE_SITTING", "IN_DRESS_ROOM", "CARRYING_EGG", "UNDERGROUND_FIGHTING", "IsOnDuel",
+        "BeingSchoolLockerTrapped", "IsJuggernautOfRunEvent", "GravityGunEffect", "ChampionRingQueue",
+    }
+    local function activeBlocks()
+        local on = {}
+        for _, a in ipairs(LEGIT_BLOCKS) do
+            if p:GetAttribute(a) then on[#on + 1] = a end
+        end
+        return on
+    end
+
+    -- sets t[k] = v even if the table is read-only (frozen), when the executor allows it; logs if it can't
+    local function patch(t, k, v)
+        if pcall(function() t[k] = v end) then return true end
+        pcall(function() if setreadonly then setreadonly(t, false) end end)
+        local ok2, err = pcall(function() t[k] = v end)
+        if ok2 then return true end
+        dlog("could not patch", k, "|", tostring(err))
+        return false
+    end
+
+    local Satchel, Ctrl
+    pcall(function()
+        local mods = RS:WaitForChild("Modules", 15)
+        Satchel = require(mods:WaitForChild("Satchel", 15))
+    end)
+    pcall(function()
+        local scripts = p:WaitForChild("PlayerScripts", 15)
+        local controllers = scripts:WaitForChild("Controllers", 30)
+        Ctrl = require(controllers:WaitForChild("BackpackController", 30))
+    end)
+    dlog("Satchel:", Satchel and "found" or "MISSING", "| BackpackController:", type(Ctrl) == "table" and "found" or "MISSING")
+
+    -- Fix 1: the anti-spam shutdown never runs (no hotbar off, no forced unequip)
+    if type(Ctrl) == "table" then
+        local origSpam = Ctrl._disableSpam
+        patch(Ctrl, "_disableSpam", function(self, ...)
+            if not GUARD_ENABLED then return origSpam(self, ...) end
+            dlog("BLOCKED the game's anti-spam hotbar shutdown")
+        end)
+    end
+
+    -- Fix 2: Satchel can't be switched off without a real reason; every attempt is logged with its caller
+    if Satchel then
+        local origSet = Satchel.SetBackpackEnabled
+        patch(Satchel, "SetBackpackEnabled", function(self, value, ...)
+            if value == false then
+                local why = activeBlocks()
+                dlog("SetBackpackEnabled(false) | game reasons:", #why > 0 and table.concat(why, ",") or "NONE")
+                dlog((debug.traceback("caller", 2):gsub("\n", " <- ")))
+                if GUARD_ENABLED and #why == 0 then
+                    dlog("-> ignored")
+                    return
+                end
+            end
+            return origSet(self, value, ...)
+        end)
+    end
+
+    -- logger: tool add / remove timing on your character (shows the burst that trips the game)
+    local function watchChar(char)
+        if not char then return end
+        char.ChildAdded:Connect(function(c) if c:IsA("Tool") then dlog("equipped", c.Name) end end)
+        char.ChildRemoved:Connect(function(c) if c:IsA("Tool") then dlog("unequipped", c.Name) end end)
+    end
+    watchChar(p.Character)
+    p.CharacterAdded:Connect(watchChar)
+
+    -- ==== TOOL KEEPER ====
+    -- If a tool is pulled out of your hands right after you equipped it, and nothing on your side asked for that
+    -- (not the hotbar, not your macros) and the game has no real reason (stunned, ragdolled, arrested, in a duel...),
+    -- the tool is put back in your hand. Works whether the client or the server did it.
+    local KEEP_TOOLS = false -- off by default: pacing (below) prevents the pull-outs, and re-equipping can add noise. Set true to bring it back.
+    -- Why it waits: the game punishes a burst of equips. If the tool goes straight back into your hand, that
+    -- is one more equip in the burst, and it gets pulled out again (the loop in the log). Waiting until the
+    -- burst window (0.7s) has passed lets the counters reset, so the tool stays. Set to 0 for instant.
+    local KEEPER_WAIT = 0.75
+    local lastToolAdd = -10
+
+    -- ==== EQUIP PACING ====
+    -- The log shows that once the game decides you are spamming, EVERY tool you equip is pulled out again about
+    -- 60-80ms later, even after waiting 1.4s. So the best fix is not to trip it at all: the game trips on the
+    -- 6th equip in a row with under 0.7s between them. This holds the 6th equip back until a 0.7s quiet gap has
+    -- reset its counter, then equips it. (Costs ~0.7s on that one equip, instead of losing the weapon.)
+    local PACE_EQUIPS = true -- ON: with it off, about 4% of equips (the 6th in a burst, usually Loveboard) still got pulled out. Set false to remove the ~0.7s pause on that 6th equip.
+    local PACE_MAX = 5      -- quick equips allowed in a row. If it still trips, try 4 or 3.
+    local PACE_GAP = 0.72   -- the game resets its counter after a 0.7s gap
+    local burst = 0
+    local paceBypass = false
+    local paceToken = 0
+    local lastEquipped = nil
+    local lastUnequipAsk = -10 -- last time anything on your client called Humanoid:UnequipTools
+    pcall(function()
+        if hookmetamethod and getnamecallmethod then
+            local oldNC
+            oldNC = hookmetamethod(game, "__namecall", (newcclosure or function(f) return f end)(function(self, ...)
+                local m = getnamecallmethod()
+                if m == "UnequipTools" then
+                    lastUnequipAsk = os.clock()
+                elseif m == "EquipTool" and PACE_EQUIPS and GUARD_ENABLED and not paceBypass then
+                    local tool = ...
+                    local now = os.clock()
+                    local okOwn = pcall(function() return self.Parent == p.Character end)
+                    if okOwn and self.Parent == p.Character and burst >= PACE_MAX and now - lastToolAdd < 0.7 then
+                        -- this would be the 6th quick equip: hold it back until the counter has reset
+                        paceToken = paceToken + 1
+                        local myToken = paceToken
+                        local hum = self
+                        local delay = (lastToolAdd + PACE_GAP) - now
+                        task.delay(delay, function()
+                            if myToken ~= paceToken then return end -- a newer equip replaced this one
+                            paceBypass = true
+                            pcall(function() hum:EquipTool(tool) end)
+                            paceBypass = false
+                        end)
+                        dlog("PACED an equip of", tostring(tool), "by", math.floor(delay * 1000), "ms (it would have been equip #" .. (burst + 1) .. " in a row)")
+                        return
+                    end
+                end
+                return oldNC(self, ...)
+            end))
+        else
+            dlog("no hookmetamethod: the keeper can't tell your own unequips apart, it only reacts within 0.6s of an equip")
+        end
+    end)
+
+    local equippedAt = setmetatable({}, { __mode = "k" })
+    local restoreLog = setmetatable({}, { __mode = "k" })
+    local keepState = setmetatable({}, { __mode = "k" }) -- per tool: how many quick put-backs got pulled out again
+
+    local function safeToRestore(char)
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if not hum or hum.Health <= 0 then return false, nil end
+        for _, n in ipairs({ "RagdollTrigger", "Dead", "BeingCarried", "stunned" }) do
+            if char:FindFirstChild(n) then return false, nil end
+        end
+        if hum:GetAttribute("Ragdoll") or p:GetAttribute("InDanceBombEffect") or p:GetAttribute("InPotionBubble") then
+            return false, nil
+        end
+        if #activeBlocks() > 0 then return false, nil end
+        return true, hum
+    end
+
+    local function handHasTool(char)
+        for _, c in ipairs(char:GetChildren()) do
+            if c:IsA("Tool") then return true end
+        end
+        return false
+    end
+
+    local function watchKeeper(char)
+        if not char then return end
+        char.ChildAdded:Connect(function(c)
+            if c:IsA("Tool") then
+                local nowA = os.clock()
+                if nowA - lastToolAdd >= 0.7 then burst = 0 end -- same rule the game uses
+                burst = burst + 1
+                equippedAt[c] = nowA
+                lastToolAdd = nowA
+                lastEquipped = c
+            end
+        end)
+        char.ChildRemoved:Connect(function(c)
+            if not (KEEP_TOOLS and GUARD_ENABLED) or not c:IsA("Tool") then return end
+            local t = equippedAt[c]
+            if not t then return end
+            local now = os.clock()
+            if now - t > 0.6 then return end                -- only a tool that was JUST equipped
+            if lastUnequipAsk > t + 0.002 then return end   -- unequipped on purpose by you / the hotbar / your macro
+            -- first try is quick. If the tool gets pulled out AGAIN right after a put-back, the quick way is not
+            -- working, so each further try waits longer (0.06s, then KEEPER_WAIT, then twice that).
+            local st = keepState[c] or { n = 0, at = -10 }
+            keepState[c] = st
+            if now - st.at < 0.4 then st.n = st.n + 1 else st.n = 0 end
+            local ladder = { 0.06, KEEPER_WAIT, KEEPER_WAIT * 2 }
+            local want = ladder[math.min(st.n + 1, #ladder)]
+            local waitFor = math.max(0.06, (lastToolAdd + want) - now)
+            task.delay(waitFor, function()
+                local ok, hum = safeToRestore(char)
+                if not ok then return end
+                if handHasTool(char) then return end        -- you already picked something else
+                if lastEquipped ~= c then return end        -- you equipped a different tool since; do not bring this one back
+                local bp = p:FindFirstChildOfClass("Backpack")
+                if not bp or c.Parent ~= bp then return end
+                -- no fighting: at most 3 puts-back per tool every 2 seconds
+                local log2 = restoreLog[c] or {}
+                for i = #log2, 1, -1 do
+                    if os.clock() - log2[i] > 2 then table.remove(log2, i) end
+                end
+                if #log2 >= 3 then return end
+                log2[#log2 + 1] = os.clock()
+                restoreLog[c] = log2
+                paceBypass = true
+                pcall(function() hum:EquipTool(c) end)
+                paceBypass = false
+                st.at = os.clock()
+                dlog("KEEPER put", c.Name, "back in your hand after waiting", math.floor(waitFor * 1000), "ms (it was pulled out", math.floor((now - t) * 1000), "ms after you equipped it)")
+            end)
+        end)
+    end
+    watchKeeper(p.Character)
+    p.CharacterAdded:Connect(watchKeeper)
+
+    -- watchdog: if the hotbar is off with no game reason, turn it back on
+    local lastState
+    while true do
+        task.wait(0.1)
+        if env.__ExoticaGuardGen ~= myGen then
+            GUARD_ENABLED = false -- a newer copy took over; this one goes inert
+            return
+        end
+        if Satchel then
+            local ok, enabled = pcall(function() return Satchel:GetBackpackEnabled() end)
+            if ok and enabled ~= lastState then
+                lastState = enabled
+                dlog("hotbar enabled =", tostring(enabled))
+            end
+            if GUARD_ENABLED and ok and enabled == false and #activeBlocks() == 0 then
+                local hum = p.Character and p.Character:FindFirstChildOfClass("Humanoid")
+                if hum and hum.Health > 0 then
+                    pcall(function()
+                        Satchel:SetBackpackEnabled(true)
+                    end)
+                    if type(Ctrl) == "table" then Ctrl._enabled = true Ctrl._spamDelay = false end
+                    dlog("watchdog turned the hotbar back on")
+                end
+            end
+        end
+    end
 end)
 
 print("Exotica: Master Suite Initialized Successfully!")
