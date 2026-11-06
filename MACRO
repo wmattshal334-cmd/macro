@@ -259,13 +259,14 @@ local function updateTarget(plr, now)
 
     local ref = hist[1]
     for i = 1, #hist do
-        if now - hist[i].t <= 0.16 then ref = hist[i] break end
+        if now - hist[i].t <= 0.22 then ref = hist[i] break end
     end
     local dt = now - ref.t
     if dt > 0.02 then
         local measured = (pos - ref.p) / dt
-        local blended = measured * 0.6 + root.AssemblyLinearVelocity * 0.4
-        st.vel = st.vel:Lerp(blended, 0.6)
+        if measured.Magnitude > 220 then measured = measured.Unit * 220 end
+        local blended = measured * 0.85 + root.AssemblyLinearVelocity * 0.15
+        st.vel = st.vel:Lerp(blended, 0.5)
     end
     st.air = hum.FloorMaterial == Enum.Material.Air
 end
@@ -314,6 +315,7 @@ local function predictFor(plr, weapon)
     end
 
     local extra, lead = oneWayLatency(), AssistSettings.Lead
+    if (Projectile.n[weapon] or 0) == 0 and AssistSettings.SpeedAuto then lead = lead * 0.7 end
     local pred, flight = pos, (pos - origin).Magnitude / speed
     for _ = 1, 6 do
         local tt = math.min((flight + extra) * lead, 3)
@@ -480,7 +482,13 @@ end
 local function getAimScreenPos(weapon)
     if AssistSettings.Solver then
         local plr = pickTarget()
-        local world = plr and predictFor(plr, weapon)
+        local world
+        if plr and AssistSettings.LockOn and AssistSettings.LockSmart == false then
+            local r = TargetState[plr] and TargetState[plr].root
+            world = r and r.Position -- Lock On without prediction: straight at where they are
+        else
+            world = plr and predictFor(plr, weapon)
+        end
         local screen = world and toScreen(world)
         if not screen then return nil end
         local l = MacroCursorOverride
@@ -517,9 +525,21 @@ RunService.RenderStepped:Connect(function(dt)
         end
         MarkerUpdate(screen)
         -- Lock On: the cursor / tracker rides the target every frame, so a click is already on it (no travel time)
-        if AssistSettings.LockOn and not AssistSettings.LockPause then
+        if AssistSettings.Enabled and AssistSettings.LockOn and not AssistSettings.LockPause and now < (AssistSettings.LockUntil or 0) then
             local plr = pickTarget()
-            local world = plr and predictFor(plr, "golden")
+            local world
+            if plr then
+                if AssistSettings.LockSmart == false then
+                    local r = TargetState[plr] and TargetState[plr].root
+                    world = r and r.Position
+                else -- predict for the weapon you are holding right now
+                    local tool = p.Character and p.Character:FindFirstChildOfClass("Tool")
+                    local tn = tool and tool.Name:lower() or ""
+                    local wk = tn:find("rpg", 1, true) and "rpg" or (tn:find("gold", 1, true) and "golden")
+                        or (tn:find("snow", 1, true) and "normal") or "golden"
+                    world = predictFor(plr, wk)
+                end
+            end
             local sc = world and toScreen(world)
             if sc and plr then
                 if ClickMode == "Mouse" and not AssistSettings.isPhone() and UIS.MouseBehavior ~= Enum.MouseBehavior.LockCenter
@@ -644,6 +664,8 @@ local function sendEvent(e, run)
                     run.freed[e.id] = freed
                 end
                 run.pos[e.id] = { x, y }
+                run.aimed = run.aimed or {}
+                run.aimed[e.id] = (aimPos ~= nil)
                 run.mode[e.id] = cm -- the up event must end the press the SAME way the down started it
                 if cm == "Tap" then
                     Engine.touchSeq = ((Engine.touchSeq or 0) + 1) % 16
@@ -666,6 +688,10 @@ local function sendEvent(e, run)
                     VIM:SendMouseButtonEvent(pos[1], pos[2], e.code, e.down, game, 0)
                 end
             else
+                if e.down and mode == "Mouse" and AssistSettings.LockOn and AssistSettings.Enabled and run.aimed and run.aimed[e.id]
+                    and UIS.MouseBehavior ~= Enum.MouseBehavior.LockCenter then
+                    pcall(function() VIM:SendMouseMoveEvent(pos[1], pos[2], game) end) -- already on the target when the click lands
+                end
                 VIM:SendMouseButtonEvent(pos[1], pos[2], e.code, e.down, game, 0)
             end
             if not e.down and run.freed and run.freed[e.id] then
@@ -698,6 +724,7 @@ end
 local function stepEngine()
     local run = Engine.run
     if not run then return end
+    AssistSettings.LockUntil = clock() + 0.4 -- Lock On only follows the target while a macro is running
 
     local now = (clock() - run.t0) * 1000
     local downThisFrame = {}
@@ -731,6 +758,7 @@ local function startSequence(events)
     local force = (MacroCursorOverride and ClickMode == "Mouse" and AssistSettings.isPhone()) and "Tap" or nil
     Engine.pending = nil
     Engine.run = { events = events, i = 1, t0 = clock(), held = {}, pos = {}, force = force }
+    AssistSettings.LockUntil = clock() + 0.4
     Engine.conn = RunService.Heartbeat:Connect(stepEngine)
     stepEngine() -- fire first event immediately, zero added latency
 end
@@ -867,7 +895,7 @@ local AutoEquipEnabled = true -- the "Auto Equip" switch flips this
 
 -- Saved settings: everything you switch on or off is remembered between sessions (auto-save, or the Save button).
 local CONFIG_FILE = "ExoticaMacros_config.json"
-local ConfigStore = { autosave = true, evictUnknown = false, hotbarGuard = true, lastEquip = 0, bright = false, faceTarget = true }
+local ConfigStore = { autosave = true, evictUnknown = false, hotbarGuard = true, lastEquip = 0, bright = false, lockSmart = true }
 -- Hotbar Guard: the script spaces out its own equips so the game's spam check never trips (waits only on script threads)
 ConfigStore.pace = function()
     if ConfigStore.hotbarGuard ~= false then
@@ -887,7 +915,7 @@ ConfigStore.collect = function()
         speedAuto = AssistSettings.SpeedAuto, manualSpeed = AssistSettings.ManualSpeed,
         customSmoothing = AssistSettings.CustomSmoothing, customLead = AssistSettings.CustomLead,
         sounds = SoundsEnabled, autoFix = AutoFixEnabled, autoAccessories = AutoAccessoryEnabled, autoEquip = AutoEquipEnabled,
-        clickMode = ClickMode, evictUnknown = ConfigStore.evictUnknown, hotbarGuard = ConfigStore.hotbarGuard, osbSize = ConfigStore.osbSize, brightTheme = ConfigStore.bright, faceTarget = ConfigStore.faceTarget,
+        clickMode = ClickMode, evictUnknown = ConfigStore.evictUnknown, hotbarGuard = ConfigStore.hotbarGuard, osbSize = ConfigStore.osbSize, brightTheme = ConfigStore.bright, lockSmart = ConfigStore.lockSmart,
         crossOn = AssistSettings.CrossOn, crossX = AssistSettings.CrossFrac.X, crossY = AssistSettings.CrossFrac.Y,
     }
 end
@@ -930,7 +958,7 @@ ConfigStore.load = function()
     ConfigStore.evictUnknown = b(d.evictUnknown, false)
     ConfigStore.hotbarGuard = b(d.hotbarGuard, true)
     ConfigStore.bright = b(d.brightTheme, false)
-    ConfigStore.faceTarget = b(d.faceTarget, true)
+    ConfigStore.lockSmart = b(d.lockSmart, true)
     ConfigStore.osbSize = (type(d.osbSize) == "number" and d.osbSize >= 1 and d.osbSize <= 4) and math.floor(d.osbSize) or 2
     AssistSettings.CrossOn = b(d.crossOn, false)
     if type(d.crossX) == "number" and type(d.crossY) == "number" then
@@ -4566,7 +4594,7 @@ xpcall(function()
     local GuiService = game:GetService("GuiService")
     local showNotification -- assigned further down; the Assist switch needs it
 
-    local PANEL_W = 340
+    local PANEL_W = 280
     local ROW_W = PANEL_W - 36 -- fixed pixel width so rows can never poke past the scroll area
     local BTN_W = 104
 
@@ -4604,28 +4632,6 @@ xpcall(function()
     local mainScale = Instance.new("UIScale")
     mainScale.Parent = main
 
-    -- colour: soft glows behind the list and a gradient banner behind the title
-    do
-        local aurora = Instance.new("Frame")
-        aurora.Name = "Aurora"
-        aurora.Size = UDim2.new(1, 0, 1, 0)
-        aurora.BackgroundTransparency = 1
-        aurora.ClipsDescendants = true
-        aurora.Parent = main
-        corner(aurora, 28)
-        for _, def in ipairs({ { COLORS.accent, 0.95, 0.35, 260, BRIGHT and 0.80 or 0.9 }, { COLORS.accent2, 0.02, 0.62, 240, BRIGHT and 0.80 or 0.9 }, { Color3.fromRGB(255, 105, 190), 0.9, 0.95, 200, BRIGHT and 0.88 or 0.93 } }) do
-            local b = Instance.new("Frame")
-            b.AnchorPoint = Vector2.new(0.5, 0.5)
-            b.Position = UDim2.new(def[2], 0, def[3], 0)
-            b.Size = UDim2.new(0, def[4], 0, def[4])
-            b.BackgroundColor3 = def[1]
-            b.BackgroundTransparency = def[5]
-            b.BorderSizePixel = 0
-            b.Parent = aurora
-            corner(b, def[4] // 2)
-        end
-    end
-
     local header = Instance.new("TextButton") -- drag handle
     header.Size = UDim2.new(1, 0, 0, 62)
     header.BackgroundTransparency = 1
@@ -4634,56 +4640,40 @@ xpcall(function()
     header.Parent = main
     makeDraggable(header, main)
 
-    local title = newLabel(main, {
-        Size = UDim2.new(1, -90, 0, 34),
-        Position = UDim2.new(0, 20, 0, 14),
+    newLabel(main, {
+        Size = UDim2.new(1, -146, 0, 24),
+        Position = UDim2.new(0, 46, 0, 12),
         Font = Enum.Font.GothamBold,
         Text = "Exotica Macros",
         TextColor3 = Color3.new(1, 1, 1),
-        TextSize = 26,
+        TextSize = 16,
         TextXAlignment = Enum.TextXAlignment.Left,
     })
-    do -- rainbow lettering
-        local tg = Instance.new("UIGradient")
-        tg.Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(90, 150, 255)),
-            ColorSequenceKeypoint.new(0.4, Color3.fromRGB(160, 105, 255)),
-            ColorSequenceKeypoint.new(0.75, Color3.fromRGB(255, 110, 190)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 175, 90)),
-        })
-        tg.Parent = title
-    end
     newLabel(main, {
-        Size = UDim2.new(0, 230, 0, 30),
-        Position = UDim2.new(0, 20, 0, 50),
-        Text = "Tap a key box to rebind. Your settings save on their own.",
-        TextWrapped = true,
+        Size = UDim2.new(1, -60, 0, 16),
+        Position = UDim2.new(0, 46, 0, 38),
         TextXAlignment = Enum.TextXAlignment.Left,
-        TextYAlignment = Enum.TextYAlignment.Top,
+        Text = "Tap a key box to rebind",
         TextSize = 11,
         TextColor3 = COLORS.subtext,
+        TextTransparency = 0.15,
     })
 
     local mainClose = Instance.new("TextButton")
-    mainClose.AnchorPoint = Vector2.new(1, 0)
-    mainClose.Size = UDim2.new(0, 26, 0, 26)
-    mainClose.Position = UDim2.new(1, -16, 0, 16)
-    mainClose.BackgroundColor3 = Color3.new(1, 1, 1)
-    mainClose.BackgroundTransparency = 0.88
+    mainClose.Size = UDim2.new(0, 14, 0, 14)
+    mainClose.Position = UDim2.new(0, 18, 0, 20)
+    mainClose.BackgroundColor3 = COLORS.red
     mainClose.BorderSizePixel = 0
-    mainClose.Font = Enum.Font.GothamBold
-    mainClose.Text = "✕"
-    mainClose.TextSize = 11
-    mainClose.TextColor3 = COLORS.subtext
+    mainClose.Text = ""
     mainClose.AutoButtonColor = false
     mainClose.Parent = main
-    corner(mainClose, 13)
+    corner(mainClose, 7)
 
     -- Scrolling list: AutomaticCanvasSize follows the content height, so showing the
     -- Custom sliders (or anything else) never needs a hand-computed height.
     local container = Instance.new("ScrollingFrame")
-    container.Size = UDim2.new(1, -24, 1, -96)
-    container.Position = UDim2.new(0, 12, 0, 88)
+    container.Size = UDim2.new(1, -24, 1, -74)
+    container.Position = UDim2.new(0, 12, 0, 64)
     container.BackgroundTransparency = 1
     container.BorderSizePixel = 0
     container.ScrollBarThickness = 3
@@ -4695,150 +4685,72 @@ xpcall(function()
     container.Parent = main
     local layout = Instance.new("UIListLayout")
     layout.SortOrder = Enum.SortOrder.LayoutOrder
-    layout.FillDirection = Enum.FillDirection.Horizontal
-    layout.Wraps = true
-    layout.HorizontalAlignment = Enum.HorizontalAlignment.Left
-    layout.VerticalAlignment = Enum.VerticalAlignment.Top
+    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
     layout.Padding = UDim.new(0, 8)
     layout.Parent = container
     local listPad = Instance.new("UIPadding")
     listPad.PaddingBottom = UDim.new(0, 8)
-    listPad.PaddingLeft = UDim.new(0, 5)
     listPad.Parent = container
     hookScrollSound(container, main)
 
-    -- small section titles
+    -- small grey section titles, like an iOS grouped list
     local function sectionHeader(text)
         local tint = ({ MACROS = COLORS.accent, ["AIM ASSIST"] = COLORS.accent2, SETUP = COLORS.green })[text] or COLORS.muted
-        local holder = Instance.new("Frame")
-        holder.Size = UDim2.new(0, ROW_W, 0, 26)
-        holder.BackgroundTransparency = 1
-        holder.Parent = container
-        local l = newLabel(holder, {
-            Size = UDim2.new(0, 120, 1, 0),
-            Position = UDim2.new(0, 4, 0, 0),
+        local l = newLabel(container, {
+            Size = UDim2.new(0, ROW_W, 0, 18),
             Font = Enum.Font.GothamBold,
             Text = text,
-            TextSize = 11,
+            TextSize = 10,
             TextColor3 = tint,
             TextXAlignment = Enum.TextXAlignment.Left,
         })
-        l.Size = UDim2.new(0, #text * 8 + 10, 1, 0)
-        local line = Instance.new("Frame")
-        line.Position = UDim2.new(0, #text * 8 + 20, 0.5, 0)
-        line.Size = UDim2.new(1, -(#text * 8 + 24), 0, 1)
-        line.BackgroundColor3 = tint
-        line.BackgroundTransparency = 0.5
-        line.BorderSizePixel = 0
-        line.Parent = holder
-        local lg = Instance.new("UIGradient")
-        lg.Transparency = NumberSequence.new(0, 1)
-        lg.Parent = line
+        local pad = Instance.new("UIPadding")
+        pad.PaddingLeft = UDim.new(0, 14)
+        pad.Parent = l
+        local bar = Instance.new("Frame")
+        bar.Size = UDim2.new(0, 3, 0, 10)
+        bar.Position = UDim2.new(0, -8, 0.5, -5)
+        bar.BackgroundColor3 = tint
+        bar.BorderSizePixel = 0
+        bar.Parent = l
+        corner(bar, 2)
     end
 
-    -- full-width glass card (sliders and wide rows)
     local function glassRow(height)
         local row = Instance.new("Frame")
         row.Size = UDim2.new(0, ROW_W, 0, height)
-        row.BackgroundColor3 = BRIGHT and COLORS.pure or COLORS.white
-        row.BackgroundTransparency = BRIGHT and 0.3 or 0.92
+        row.BackgroundColor3 = COLORS.white
+        row.BackgroundTransparency = 0.9
         row.BorderSizePixel = 0
         row.Parent = container
-        corner(row, 18)
-        stroke(row, BRIGHT and Color3.fromRGB(188, 202, 244) or COLORS.white, BRIGHT and 0.2 or 0.86, 1)
+        corner(row, 16)
+        stroke(row, COLORS.white, 0.88, 1)
         return row
     end
 
-    -- Feature tiles: two per line. Each is an icon in a rounded square, a title, a short description, and a control.
-    local TILE_W = (ROW_W - 8) // 2
-    local TILE_HUES = {
-        { Color3.fromRGB(80, 140, 255), Color3.fromRGB(120, 100, 255) },
-        { Color3.fromRGB(150, 95, 255), Color3.fromRGB(235, 100, 200) },
-        { Color3.fromRGB(255, 120, 150), Color3.fromRGB(255, 175, 90) },
-        { Color3.fromRGB(60, 200, 160), Color3.fromRGB(70, 150, 255) },
-    }
-    local tileCount = 0
-    local DESC = {
-        ["Snowball"] = "Tap the key box to rebind it.",
-        ["Board Combo"] = "Tap the key box to rebind it.",
-        ["RPG"] = "Tap the key box to rebind it.",
-        ["Assist"] = "Aims your shots at the target.",
-        ["Aim Mode"] = "Smart, Lock On, Classic and more.",
-        ["Projectile"] = "Shot speed the assist works from.",
-        ["Arc Comp"] = "Lobs shots to land on the target.",
-        ["Latency Comp"] = "Leads shots to cover your ping.",
-        ["Marker"] = "Shows a dot where the aim lands.",
-        ["Target"] = "Who the assist aims at.",
-        ["Skip Friends"] = "Never aims at your friends.",
-        ["Sensitivity"] = "How far from centre it will aim.",
-        ["Sounds"] = "Menu and alert sounds.",
-        ["Auto Slot Fix"] = "Puts weapons in the right slots.",
-        ["Auto Accessories"] = "Fills your accessory slots.",
-        ["Auto Equip"] = "Equips your gear when you spawn.",
-        ["Hotbar Guard"] = "Stops the game hiding your hotbar.",
-        ["Evict unknown items"] = "Moves unknown items out of slots.",
-        ["Custom aim point"] = "Use your own aim origin.",
-        ["Move aim point"] = "Drag the aim point around.",
-        ["Reset aim point"] = "Back to the screen centre.",
-        ["Auto-save settings"] = "Remembers your settings.",
-        ["Save settings now"] = "Writes your settings to disk.",
-        ["Shot method"] = "How macros click: mouse, tap, tool.",
-        ["Slots"] = "See which slot holds what.",
-        ["Screen Buttons"] = "On-screen macro buttons.",
-        ["Need help?"] = "Copy my Discord tag.",
-        ["Custom Macros"] = "Build your own combos.",
-        ["How To Use"] = "A quick guide to the script.",
-        ["Weapon Tiers"] = "The best weapons, ranked.",
-    }
-    local function makeTile(labelText, height)
-        tileCount += 1
-        local emoji, rest = labelText:match("^([^%w%s%p]+)%s+(.+)$")
-        local title = rest or labelText
-        local tile = Instance.new("Frame")
-        tile.Size = UDim2.new(0, TILE_W, 0, height)
-        tile.BackgroundColor3 = BRIGHT and COLORS.pure or COLORS.white
-        tile.BackgroundTransparency = BRIGHT and 0.3 or 0.92
-        tile.BorderSizePixel = 0
-        tile.Parent = container
-        corner(tile, 20)
-        local ts = stroke(tile, BRIGHT and Color3.fromRGB(188, 202, 244) or COLORS.white, BRIGHT and 0.2 or 0.86, 1)
-        local hue = TILE_HUES[(tileCount - 1) % #TILE_HUES + 1]
-        -- icon container: a small rounded square with the glyph centred inside
-        local icon = Instance.new("Frame")
-        icon.Size = UDim2.new(0, 34, 0, 34)
-        icon.Position = UDim2.new(0, 12, 0, 12)
-        icon.BackgroundColor3 = Color3.new(1, 1, 1)
-        icon.BorderSizePixel = 0
-        icon.Parent = tile
-        corner(icon, 11)
-        local ig = Instance.new("UIGradient")
-        ig.Rotation = 45
-        ig.Color = ColorSequence.new(hue[1], hue[2])
-        ig.Parent = icon
-        newLabel(icon, { Size = UDim2.new(1, 0, 1, 0), Text = emoji or "•", TextSize = 17, Font = Enum.Font.GothamBold })
-        -- title, then a short description beneath it
-        local label = newLabel(tile, {
-            Size = UDim2.new(1, -24, 0, 18), Position = UDim2.new(0, 12, 0, 54),
-            Font = Enum.Font.GothamMedium, Text = title, TextSize = 13,
-            TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd,
+    local function rowLabel(row, text)
+        return newLabel(row, {
+            Size = UDim2.new(1, -(BTN_W + 30), 1, 0),
+            Position = UDim2.new(0, 14, 0, 0),
+            Font = Enum.Font.GothamMedium,
+            Text = text,
+            TextSize = 13,
+            TextXAlignment = Enum.TextXAlignment.Left,
         })
-        newLabel(tile, {
-            Size = UDim2.new(1, -24, 0, 26), Position = UDim2.new(0, 12, 0, 73),
-            Font = Enum.Font.Gotham, Text = DESC[title] or "", TextSize = 10, TextColor3 = COLORS.muted,
-            TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
-        })
-        return tile, label
     end
 
-    -- A tile with a value pill along the bottom. Only the pill does anything.
+    -- A row with a plain label on the left and a pill button on the right.
+    -- The label is NOT clickable; only the pill does anything.
     local function makeRow(labelText, btnText, btnTextSize)
-        local tile, label = makeTile(labelText, 136)
+        local row = glassRow(44)
+        local label = rowLabel(row, labelText)
+
         local btn = Instance.new("TextButton")
-        btn.AnchorPoint = Vector2.new(0, 1)
-        btn.Size = UDim2.new(1, -24, 0, 28)
-        btn.Position = UDim2.new(0, 12, 1, -10)
-        btn.BackgroundColor3 = COLORS.accent
-        btn.BackgroundTransparency = BRIGHT and 0.86 or 0.82
+        btn.AnchorPoint = Vector2.new(1, 0.5)
+        btn.Size = UDim2.new(0, BTN_W, 0, 30)
+        btn.Position = UDim2.new(1, -8, 0.5, 0)
+        btn.BackgroundColor3 = COLORS.white
+        btn.BackgroundTransparency = 0.82
         btn.BorderSizePixel = 0
         btn.Font = Enum.Font.GothamBold
         btn.Text = btnText
@@ -4846,42 +4758,43 @@ xpcall(function()
         btn.TextSize = btnTextSize or 12
         btn.TextTruncate = Enum.TextTruncate.AtEnd
         btn.AutoButtonColor = false
-        btn.Parent = tile
-        corner(btn, 14)
-        local bst = stroke(btn, COLORS.accent, BRIGHT and 0.55 or 0.5, 1)
+        btn.Parent = row
+        corner(btn, 15)
+        stroke(btn, COLORS.white, 0.8, 1)
         return label, btn
     end
 
-    -- iOS-style on/off switch tile
+    -- iOS-style on/off switch row
     local function makeSwitchRow(labelText, initial, onChange)
-        local row = makeTile(labelText, 106)
+        local row = glassRow(44)
+        rowLabel(row, labelText)
 
         local track = Instance.new("TextButton")
-        track.AnchorPoint = Vector2.new(1, 0)
-        track.Size = UDim2.new(0, 44, 0, 26)
-        track.Position = UDim2.new(1, -12, 0, 16)
+        track.AnchorPoint = Vector2.new(1, 0.5)
+        track.Size = UDim2.new(0, 52, 0, 30)
+        track.Position = UDim2.new(1, -10, 0.5, 0)
         track.BackgroundColor3 = initial and COLORS.green or COLORS.gray
         track.BackgroundTransparency = 0.1
         track.BorderSizePixel = 0
         track.Text = ""
         track.AutoButtonColor = false
         track.Parent = row
-        corner(track, 13)
+        corner(track, 15)
 
         local knob = Instance.new("Frame")
         knob.AnchorPoint = Vector2.new(0, 0.5)
-        knob.Size = UDim2.new(0, 22, 0, 22)
-        knob.Position = initial and UDim2.new(1, -24, 0.5, 0) or UDim2.new(0, 2, 0.5, 0)
-        knob.BackgroundColor3 = COLORS.pure
+        knob.Size = UDim2.new(0, 26, 0, 26)
+        knob.Position = initial and UDim2.new(1, -28, 0.5, 0) or UDim2.new(0, 2, 0.5, 0)
+        knob.BackgroundColor3 = COLORS.white
         knob.BorderSizePixel = 0
         knob.Parent = track
-        corner(knob, 11)
+        corner(knob, 13)
 
         local state = initial
         track.Activated:Connect(function()
             state = not state
             tween(track, { BackgroundColor3 = state and COLORS.green or COLORS.gray }, 0.25)
-            tween(knob, { Position = state and UDim2.new(1, -24, 0.5, 0) or UDim2.new(0, 2, 0.5, 0) }, 0.3, Enum.EasingStyle.Back)
+            tween(knob, { Position = state and UDim2.new(1, -28, 0.5, 0) or UDim2.new(0, 2, 0.5, 0) }, 0.3, Enum.EasingStyle.Back)
             onChange(state)
         end)
         return row
@@ -5170,10 +5083,18 @@ xpcall(function()
 
     local modeIndex = 3 -- Classic (index in AIM_MODES)
     for i, nm in ipairs(AIM_MODES) do if nm == AssistSettings.ModeName then modeIndex = i end end
+    local lockRow = makeSwitchRow("🧠 Lock On: smart prediction", ConfigStore.lockSmart ~= false, function(on)
+        ConfigStore.lockSmart = on
+        AssistSettings.LockSmart = on
+        playEmbedded(on and "click" or "off", 0.7, 1, 1)
+    end)
+    AssistSettings.LockSmart = ConfigStore.lockSmart ~= false
+    lockRow.Visible = false
     local function applyAimMode(name)
         AssistSettings.ModeName = name
         local preset = AIM_PRESETS[name]
         AssistSettings.LockOn = (preset and preset.Lock) == true
+        if lockRow then lockRow.Visible = AssistSettings.LockOn end
         if preset then
             AssistSettings.Solver = preset.Solver
             AssistSettings.Smoothing = preset.Smoothing
@@ -5853,10 +5774,10 @@ xpcall(function()
     do
         local pill = Instance.new("TextButton")
         pill.AnchorPoint = Vector2.new(1, 0)
-        pill.Position = UDim2.new(1, -16, 0, 52)
+        pill.Position = UDim2.new(1, -12, 0, 14)
         pill.Size = UDim2.new(0, 80, 0, 20)
         pill.BackgroundColor3 = UI2.stage.color
-        pill.BackgroundTransparency = 0.82
+        pill.BackgroundTransparency = 0.8
         pill.BorderSizePixel = 0
         pill.AutoButtonColor = false
         pill.Font = Enum.Font.GothamBold
@@ -8017,11 +7938,18 @@ xpcall(function()
             if not AutoEquipEnabled then return list end
             local ch = p.Character
             for _, t in ipairs(PLAN.equip) do
-                if t.Parent and not autoFix.equipDone[t.Name] and (autoFix.equipTries[t.Name] or 0) < 2
+                if t.Parent and not autoFix.equipDone[t.Name] and (autoFix.equipTries[t.Name] or 0) < 3
                     and not (ch and t.Parent == ch) and not isGearEquipped(t) then
                     list[#list + 1] = t
                 end
             end
+            -- knuckles first (they matter most), then the rest in a steady order
+            table.sort(list, function(a, b)
+                local ea, eb = WEAPONS.tool(a), WEAPONS.tool(b)
+                local ka, kb = (ea and ea.group == "knuckle") and 0 or 1, (eb and eb.group == "knuckle") and 0 or 1
+                if ka ~= kb then return ka < kb end
+                return a.Name < b.Name
+            end)
             return list
         end
         local function brassNeeded() return #equipQueue() > 0 end
@@ -8394,11 +8322,20 @@ xpcall(function()
                     end
                 end
                 -- equippables, once per spawn (knuckles/gloves, boots, cloak, crown)
-                for _ = 1, 5 do
+                for _ = 1, 8 do
                     if not (opened or autoOpen) then break end
                     -- right after a respawn (equipOnly) it equips no matter what you're doing
                     if not equipOnly and not autoFix.forced() and (os.clock() - LastUserInput < 0.25 or Engine.run ~= nil) then break end
                     local q = equipQueue()
+                    if #q == 0 then
+                        -- gear marked done that is no longer on (the game pulled it off): put it back in the queue
+                        for _, t in ipairs(PLAN.equipAll) do
+                            if autoFix.equipDone[t.Name] and t.Parent and not isGearEquipped(t) and (autoFix.equipTries[t.Name] or 0) < 3 then
+                                autoFix.equipDone[t.Name] = nil
+                            end
+                        end
+                        q = equipQueue()
+                    end
                     if #q == 0 then break end
                     if equipGear(q[1]) then
                         extra[#extra + 1] = "Equipped your " .. q[1].Name .. "."
@@ -9331,7 +9268,7 @@ xpcall(function()
     UI2.runLoader = function(done)
         local finished = false
         local blue, violet = Color3.fromRGB(70, 110, 255), Color3.fromRGB(156, 96, 255)
-        local ink, soft = Color3.fromRGB(22, 28, 52), Color3.fromRGB(120, 130, 158)
+        local ink, soft = Color3.fromRGB(245, 247, 255), Color3.fromRGB(165, 172, 200)
 
         local overlay = Instance.new("Frame")
         overlay.Name = "Loader"
@@ -9348,7 +9285,7 @@ xpcall(function()
         overlay.ClipsDescendants = true
         overlay.Parent = sg
         local bg = Instance.new("UIGradient")
-        bg.Color = ColorSequence.new(Color3.fromRGB(252, 253, 255), Color3.fromRGB(226, 235, 255))
+        bg.Color = ColorSequence.new(Color3.fromRGB(26, 28, 44), Color3.fromRGB(10, 11, 20))
         bg.Rotation = 90
         bg.Parent = overlay
 
@@ -9429,7 +9366,7 @@ xpcall(function()
         track.AnchorPoint = Vector2.new(0.5, 0.5)
         track.Position = UDim2.new(0.5, 0, 0.5, 56)
         track.Size = UDim2.new(0, 0, 0, 2)
-        track.BackgroundColor3 = Color3.fromRGB(205, 215, 240)
+        track.BackgroundColor3 = Color3.fromRGB(60, 66, 92)
         track.BorderSizePixel = 0
         track.ZIndex = 203
         track.Parent = stage
@@ -9452,18 +9389,18 @@ xpcall(function()
         who.AnchorPoint = Vector2.new(0.5, 1)
         who.Position = UDim2.new(0.5, 0, 1, -36)
         who.Size = UDim2.new(0, 260, 0, 44)
-        who.BackgroundColor3 = Color3.new(1, 1, 1)
+        who.BackgroundColor3 = Color3.fromRGB(34, 37, 56)
         who.BackgroundTransparency = 1
         who.BorderSizePixel = 0
         who.ZIndex = 202
         who.Parent = overlay
         corner(who, 22)
-        local whoStroke = stroke(who, Color3.fromRGB(205, 215, 240), 1, 1)
+        local whoStroke = stroke(who, Color3.fromRGB(110, 120, 170), 1, 1)
         local av = Instance.new("ImageLabel")
         av.AnchorPoint = Vector2.new(0, 0.5)
         av.Position = UDim2.new(0, 5, 0.5, 0)
         av.Size = UDim2.new(0, 34, 0, 34)
-        av.BackgroundColor3 = Color3.fromRGB(228, 235, 252)
+        av.BackgroundColor3 = Color3.fromRGB(50, 54, 80)
         av.BackgroundTransparency = 1
         av.ImageTransparency = 1
         av.BorderSizePixel = 0
@@ -9539,7 +9476,7 @@ xpcall(function()
         task.delay(3.8, function()
             if status.Parent then
                 status.Text = "Ready"
-                status.TextColor3 = Color3.fromRGB(34, 168, 108)
+                status.TextColor3 = Color3.fromRGB(70, 215, 140)
             end
             playEmbedded("loaded", 0.8, 1, 1.4)
         end)
@@ -9563,6 +9500,21 @@ xpcall(function()
         if UI2.afterRan then return end -- the safety net and the fallback can both call this
         UI2.afterRan = true
         mainCtrl.show(true)
+        -- every launch: say which version (and stage) is running
+        task.delay(1.4, function()
+            if showNotification then
+                pcall(showNotification, {
+                    title = "Exotica Macros v" .. SCRIPT_VERSION .. " " .. SCRIPT_STAGE,
+                    badge = string.sub(SCRIPT_STAGE, 1, 1),
+                    color = UI2.stage.color,
+                    width = 320,
+                    items = { "You're running version " .. SCRIPT_VERSION .. " (" .. SCRIPT_STAGE .. ").", UI2.stage.text },
+                    hint = "Tap the colored tag in the menu any time",
+                    duration = 5,
+                    sounds = {},
+                })
+            end
+        end)
         -- the very first time the script is ever run: show the "How To Use" guide (remembered, so it only happens once)
         if not UI2.seen() then
             task.delay(2.5, function()
@@ -10885,7 +10837,7 @@ xpcall(function()
         if AutoFixMemory.noticeShown == SCRIPT_VERSION then return end -- already shown this session (re-running the script doesn't repeat it)
         AutoFixMemory.noticeShown = SCRIPT_VERSION
         local noticeItems = {
-            "3.7: Auto Slot Fix works again (a bug stopped every move), a light bar now travels along the hotbar when weapons are out of order, a new loading screen, and a bright frosted-glass menu theme (switch in settings).",
+            "3.7: Auto Slot Fix works again (a bug stopped every move), knuckles equip first, a new Lock On aim mode with a smart-prediction switch, a light bar along the hotbar when weapons are out of order, a new loading screen, button sizes and the Hotbar Guard switch.",
             "3.6: a new aurora intro, a restyled Custom Macros panel, and a Templates gallery (Snowball Burst, RPG Snipe, Board Swing and more).",
             "3.5: Custom Macros rebuilt: add, reorder and delete steps, set exact wait times, repeat, a live time preview, a Test button, rename and duplicate.",
             "3.4: new cinematic loading screen, a movable aim point, screen buttons always tap on phones, and Auto Slot Fix stays out of fights and only moves items it recognises (switch: Evict unknown items).",
