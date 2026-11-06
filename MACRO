@@ -522,24 +522,10 @@ RunService.RenderStepped:Connect(function(dt)
             local world = plr and predictFor(plr, "golden")
             local sc = world and toScreen(world)
             if sc and plr then
-                if ClickMode == "Mouse" and not AssistSettings.isPhone() and now >= (AssistSettings.nextLockMove or 0) then
+                if ClickMode == "Mouse" and not AssistSettings.isPhone() and UIS.MouseBehavior ~= Enum.MouseBehavior.LockCenter
+                    and now >= (AssistSettings.nextLockMove or 0) then
                     AssistSettings.nextLockMove = now + 0.016
                     pcall(function() VIM:SendMouseMoveEvent(sc.X, sc.Y, game) end)
-                end
-                if AssistSettings.FaceTarget ~= false then -- turn the character (not the camera) toward the target
-                    pcall(function()
-                        local ch = p.Character
-                        local root = ch and ch:FindFirstChild("HumanoidRootPart")
-                        local hum = ch and ch:FindFirstChildOfClass("Humanoid")
-                        local tr = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
-                        if root and tr and hum and hum.Health > 0 and not hum.Sit then
-                            local d = tr.Position - root.Position
-                            d = Vector3.new(d.X, 0, d.Z)
-                            if d.Magnitude > 1 then
-                                root.CFrame = root.CFrame:Lerp(CFrame.lookAt(root.Position, root.Position + d), math.min(1, dt * 14))
-                            end
-                        end
-                    end)
                 end
             end
         end
@@ -4580,7 +4566,7 @@ xpcall(function()
     local GuiService = game:GetService("GuiService")
     local showNotification -- assigned further down; the Assist switch needs it
 
-    local PANEL_W = 280
+    local PANEL_W = 340
     local ROW_W = PANEL_W - 36 -- fixed pixel width so rows can never poke past the scroll area
     local BTN_W = 104
 
@@ -4638,36 +4624,6 @@ xpcall(function()
             b.Parent = aurora
             corner(b, def[4] // 2)
         end
-        local banner = Instance.new("Frame")
-        banner.Name = "Banner"
-        banner.Size = UDim2.new(1, 0, 0, 66)
-        banner.BackgroundColor3 = Color3.new(1, 1, 1)
-        banner.BorderSizePixel = 0
-        banner.Parent = aurora
-        local bg = Instance.new("UIGradient")
-        bg.Rotation = 18
-        bg.Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(70, 130, 255)),
-            ColorSequenceKeypoint.new(0.35, Color3.fromRGB(150, 90, 255)),
-            ColorSequenceKeypoint.new(0.7, Color3.fromRGB(255, 100, 190)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 165, 80)),
-        })
-        bg.Parent = banner
-        local t0 = os.clock() -- slow drifting shimmer
-        local shim
-        shim = RunService.RenderStepped:Connect(function()
-            if not banner.Parent then shim:Disconnect() return end
-            bg.Offset = Vector2.new(math.sin((os.clock() - t0) * 0.5) * 0.12, 0)
-        end)
-        local gloss = Instance.new("Frame")
-        gloss.Size = UDim2.new(1, 0, 0.5, 0)
-        gloss.BackgroundColor3 = Color3.new(1, 1, 1)
-        gloss.BorderSizePixel = 0
-        gloss.Parent = banner
-        local gg = Instance.new("UIGradient")
-        gg.Rotation = 90
-        gg.Transparency = NumberSequence.new(0.7, 1)
-        gg.Parent = gloss
     end
 
     local header = Instance.new("TextButton") -- drag handle
@@ -4678,40 +4634,56 @@ xpcall(function()
     header.Parent = main
     makeDraggable(header, main)
 
-    newLabel(main, {
-        Size = UDim2.new(1, -146, 0, 24),
-        Position = UDim2.new(0, 46, 0, 12),
+    local title = newLabel(main, {
+        Size = UDim2.new(1, -90, 0, 34),
+        Position = UDim2.new(0, 20, 0, 14),
         Font = Enum.Font.GothamBold,
         Text = "Exotica Macros",
-        TextColor3 = COLORS.pure,
-        TextSize = 16,
+        TextColor3 = Color3.new(1, 1, 1),
+        TextSize = 26,
         TextXAlignment = Enum.TextXAlignment.Left,
     })
+    do -- rainbow lettering
+        local tg = Instance.new("UIGradient")
+        tg.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(90, 150, 255)),
+            ColorSequenceKeypoint.new(0.4, Color3.fromRGB(160, 105, 255)),
+            ColorSequenceKeypoint.new(0.75, Color3.fromRGB(255, 110, 190)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 175, 90)),
+        })
+        tg.Parent = title
+    end
     newLabel(main, {
-        Size = UDim2.new(1, -60, 0, 16),
-        Position = UDim2.new(0, 46, 0, 38),
-        Text = "Tap a key box to rebind",
+        Size = UDim2.new(0, 230, 0, 30),
+        Position = UDim2.new(0, 20, 0, 50),
+        Text = "Tap a key box to rebind. Your settings save on their own.",
+        TextWrapped = true,
         TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Top,
         TextSize = 11,
-        TextColor3 = COLORS.pure,
-        TextTransparency = 0.12,
+        TextColor3 = COLORS.subtext,
     })
 
     local mainClose = Instance.new("TextButton")
-    mainClose.Size = UDim2.new(0, 14, 0, 14)
-    mainClose.Position = UDim2.new(0, 18, 0, 20)
-    mainClose.BackgroundColor3 = COLORS.red
+    mainClose.AnchorPoint = Vector2.new(1, 0)
+    mainClose.Size = UDim2.new(0, 26, 0, 26)
+    mainClose.Position = UDim2.new(1, -16, 0, 16)
+    mainClose.BackgroundColor3 = Color3.new(1, 1, 1)
+    mainClose.BackgroundTransparency = 0.88
     mainClose.BorderSizePixel = 0
-    mainClose.Text = ""
+    mainClose.Font = Enum.Font.GothamBold
+    mainClose.Text = "✕"
+    mainClose.TextSize = 11
+    mainClose.TextColor3 = COLORS.subtext
     mainClose.AutoButtonColor = false
     mainClose.Parent = main
-    corner(mainClose, 7)
+    corner(mainClose, 13)
 
     -- Scrolling list: AutomaticCanvasSize follows the content height, so showing the
     -- Custom sliders (or anything else) never needs a hand-computed height.
     local container = Instance.new("ScrollingFrame")
-    container.Size = UDim2.new(1, -24, 1, -82)
-    container.Position = UDim2.new(0, 12, 0, 74)
+    container.Size = UDim2.new(1, -24, 1, -96)
+    container.Position = UDim2.new(0, 12, 0, 88)
     container.BackgroundTransparency = 1
     container.BorderSizePixel = 0
     container.ScrollBarThickness = 3
@@ -4723,41 +4695,40 @@ xpcall(function()
     container.Parent = main
     local layout = Instance.new("UIListLayout")
     layout.SortOrder = Enum.SortOrder.LayoutOrder
-    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    layout.FillDirection = Enum.FillDirection.Horizontal
+    layout.Wraps = true
+    layout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+    layout.VerticalAlignment = Enum.VerticalAlignment.Top
     layout.Padding = UDim.new(0, 8)
     layout.Parent = container
     local listPad = Instance.new("UIPadding")
     listPad.PaddingBottom = UDim.new(0, 8)
+    listPad.PaddingLeft = UDim.new(0, 5)
     listPad.Parent = container
     hookScrollSound(container, main)
 
-    -- small grey section titles, like an iOS grouped list
+    -- small section titles
     local function sectionHeader(text)
         local tint = ({ MACROS = COLORS.accent, ["AIM ASSIST"] = COLORS.accent2, SETUP = COLORS.green })[text] or COLORS.muted
         local holder = Instance.new("Frame")
-        holder.Size = UDim2.new(0, ROW_W, 0, 24)
+        holder.Size = UDim2.new(0, ROW_W, 0, 26)
         holder.BackgroundTransparency = 1
         holder.Parent = container
-        local chip = newLabel(holder, {
-            Size = UDim2.new(0, #text * 7 + 26, 0, 20),
-            Position = UDim2.new(0, 2, 0.5, -10),
+        local l = newLabel(holder, {
+            Size = UDim2.new(0, 120, 1, 0),
+            Position = UDim2.new(0, 4, 0, 0),
             Font = Enum.Font.GothamBold,
             Text = text,
-            TextSize = 10,
-            TextColor3 = COLORS.pure,
-            BackgroundTransparency = 0,
-            BackgroundColor3 = tint,
+            TextSize = 11,
+            TextColor3 = tint,
+            TextXAlignment = Enum.TextXAlignment.Left,
         })
-        corner(chip, 10)
-        local cg = Instance.new("UIGradient")
-        cg.Color = ColorSequence.new(tint, Color3.new(tint.R * 0.8 + 0.2 * 0.6, tint.G * 0.8, tint.B * 0.8 + 0.2 * 0.4))
-        cg.Rotation = 0
-        cg.Parent = chip
+        l.Size = UDim2.new(0, #text * 8 + 10, 1, 0)
         local line = Instance.new("Frame")
-        line.Position = UDim2.new(0, #text * 7 + 36, 0.5, 0)
-        line.Size = UDim2.new(1, -(#text * 7 + 44), 0, 1)
+        line.Position = UDim2.new(0, #text * 8 + 20, 0.5, 0)
+        line.Size = UDim2.new(1, -(#text * 8 + 24), 0, 1)
         line.BackgroundColor3 = tint
-        line.BackgroundTransparency = 0.6
+        line.BackgroundTransparency = 0.5
         line.BorderSizePixel = 0
         line.Parent = holder
         local lg = Instance.new("UIGradient")
@@ -4765,92 +4736,109 @@ xpcall(function()
         lg.Parent = line
     end
 
+    -- full-width glass card (sliders and wide rows)
     local function glassRow(height)
         local row = Instance.new("Frame")
         row.Size = UDim2.new(0, ROW_W, 0, height)
         row.BackgroundColor3 = BRIGHT and COLORS.pure or COLORS.white
-        row.BackgroundTransparency = BRIGHT and 0.3 or 0.9
+        row.BackgroundTransparency = BRIGHT and 0.3 or 0.92
         row.BorderSizePixel = 0
         row.Parent = container
-        corner(row, 16)
-        local rst = stroke(row, BRIGHT and Color3.fromRGB(188, 202, 244) or COLORS.white, BRIGHT and 0.2 or 0.88, 1)
-        if not BRIGHT then
-            row.BackgroundTransparency = 0.86
-            local fillG = Instance.new("UIGradient") -- soft blue-to-violet tint across the row
-            fillG.Color = ColorSequence.new(COLORS.accent, COLORS.accent2)
-            fillG.Transparency = NumberSequence.new(0, 0.55)
-            fillG.Parent = row
-            rst.Color = Color3.new(1, 1, 1)
-            rst.Transparency = 0.35
-            local eg = Instance.new("UIGradient") -- rainbow hairline edge
-            eg.Rotation = 20
-            eg.Color = ColorSequence.new({
-                ColorSequenceKeypoint.new(0, COLORS.accent),
-                ColorSequenceKeypoint.new(0.5, COLORS.accent2),
-                ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 120, 170)),
-            })
-            eg.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.35), NumberSequenceKeypoint.new(1, 0.8) })
-            eg.Parent = rst
-        end
-        local stripe = Instance.new("Frame") -- thin colour bar on the left edge
-        stripe.Size = UDim2.new(0, 3, 0, math.max(14, height - 26))
-        stripe.Position = UDim2.new(0, 5, 0.5, -math.max(14, height - 26) // 2)
-        stripe.BackgroundColor3 = Color3.new(1, 1, 1)
-        stripe.BorderSizePixel = 0
-        stripe.Parent = row
-        corner(stripe, 2)
-        local sgr = Instance.new("UIGradient")
-        sgr.Rotation = 90
-        sgr.Color = ColorSequence.new(COLORS.accent, COLORS.accent2)
-        sgr.Parent = stripe
+        corner(row, 18)
+        stroke(row, BRIGHT and Color3.fromRGB(188, 202, 244) or COLORS.white, BRIGHT and 0.2 or 0.86, 1)
         return row
     end
 
-    local function rowLabel(row, text)
-        local emoji, rest = text:match("^([^%w%s%p]+)%s+(.+)$")
-        local x = 14
-        if emoji and rest then -- the leading emoji becomes a small tinted icon chip
-            x = 46
-            text = rest
-            local chip = Instance.new("Frame")
-            chip.Size = UDim2.new(0, 28, 0, 28)
-            chip.Position = UDim2.new(0, 14, 0.5, -14)
-            chip.BackgroundColor3 = BRIGHT and COLORS.accent or Color3.new(1, 1, 1)
-            chip.BackgroundTransparency = BRIGHT and 0.85 or 0.72
-            chip.BorderSizePixel = 0
-            chip.Parent = row
-            corner(chip, 9)
-            if not BRIGHT then
-                local cgr = Instance.new("UIGradient")
-                cgr.Rotation = 45
-                cgr.Color = ColorSequence.new(COLORS.accent, COLORS.accent2)
-                cgr.Parent = chip
-            end
-            newLabel(chip, { Size = UDim2.new(1, 0, 1, 0), Text = emoji, TextSize = 15, Font = Enum.Font.GothamBold })
-        end
-        return newLabel(row, {
-            Size = UDim2.new(1, -(BTN_W + x + 14), 1, 0),
-            Position = UDim2.new(0, x, 0, 0),
-            Font = Enum.Font.GothamMedium,
-            Text = text,
-            TextSize = 13,
-            TextXAlignment = Enum.TextXAlignment.Left,
-            TextTruncate = Enum.TextTruncate.AtEnd,
+    -- Feature tiles: two per line. Each is an icon in a rounded square, a title, a short description, and a control.
+    local TILE_W = (ROW_W - 8) // 2
+    local TILE_HUES = {
+        { Color3.fromRGB(80, 140, 255), Color3.fromRGB(120, 100, 255) },
+        { Color3.fromRGB(150, 95, 255), Color3.fromRGB(235, 100, 200) },
+        { Color3.fromRGB(255, 120, 150), Color3.fromRGB(255, 175, 90) },
+        { Color3.fromRGB(60, 200, 160), Color3.fromRGB(70, 150, 255) },
+    }
+    local tileCount = 0
+    local DESC = {
+        ["Snowball"] = "Tap the key box to rebind it.",
+        ["Board Combo"] = "Tap the key box to rebind it.",
+        ["RPG"] = "Tap the key box to rebind it.",
+        ["Assist"] = "Aims your shots at the target.",
+        ["Aim Mode"] = "Smart, Lock On, Classic and more.",
+        ["Projectile"] = "Shot speed the assist works from.",
+        ["Arc Comp"] = "Lobs shots to land on the target.",
+        ["Latency Comp"] = "Leads shots to cover your ping.",
+        ["Marker"] = "Shows a dot where the aim lands.",
+        ["Target"] = "Who the assist aims at.",
+        ["Skip Friends"] = "Never aims at your friends.",
+        ["Sensitivity"] = "How far from centre it will aim.",
+        ["Sounds"] = "Menu and alert sounds.",
+        ["Auto Slot Fix"] = "Puts weapons in the right slots.",
+        ["Auto Accessories"] = "Fills your accessory slots.",
+        ["Auto Equip"] = "Equips your gear when you spawn.",
+        ["Hotbar Guard"] = "Stops the game hiding your hotbar.",
+        ["Evict unknown items"] = "Moves unknown items out of slots.",
+        ["Custom aim point"] = "Use your own aim origin.",
+        ["Move aim point"] = "Drag the aim point around.",
+        ["Reset aim point"] = "Back to the screen centre.",
+        ["Auto-save settings"] = "Remembers your settings.",
+        ["Save settings now"] = "Writes your settings to disk.",
+        ["Shot method"] = "How macros click: mouse, tap, tool.",
+        ["Slots"] = "See which slot holds what.",
+        ["Screen Buttons"] = "On-screen macro buttons.",
+        ["Need help?"] = "Copy my Discord tag.",
+        ["Custom Macros"] = "Build your own combos.",
+        ["How To Use"] = "A quick guide to the script.",
+        ["Weapon Tiers"] = "The best weapons, ranked.",
+    }
+    local function makeTile(labelText, height)
+        tileCount += 1
+        local emoji, rest = labelText:match("^([^%w%s%p]+)%s+(.+)$")
+        local title = rest or labelText
+        local tile = Instance.new("Frame")
+        tile.Size = UDim2.new(0, TILE_W, 0, height)
+        tile.BackgroundColor3 = BRIGHT and COLORS.pure or COLORS.white
+        tile.BackgroundTransparency = BRIGHT and 0.3 or 0.92
+        tile.BorderSizePixel = 0
+        tile.Parent = container
+        corner(tile, 20)
+        local ts = stroke(tile, BRIGHT and Color3.fromRGB(188, 202, 244) or COLORS.white, BRIGHT and 0.2 or 0.86, 1)
+        local hue = TILE_HUES[(tileCount - 1) % #TILE_HUES + 1]
+        -- icon container: a small rounded square with the glyph centred inside
+        local icon = Instance.new("Frame")
+        icon.Size = UDim2.new(0, 34, 0, 34)
+        icon.Position = UDim2.new(0, 12, 0, 12)
+        icon.BackgroundColor3 = Color3.new(1, 1, 1)
+        icon.BorderSizePixel = 0
+        icon.Parent = tile
+        corner(icon, 11)
+        local ig = Instance.new("UIGradient")
+        ig.Rotation = 45
+        ig.Color = ColorSequence.new(hue[1], hue[2])
+        ig.Parent = icon
+        newLabel(icon, { Size = UDim2.new(1, 0, 1, 0), Text = emoji or "•", TextSize = 17, Font = Enum.Font.GothamBold })
+        -- title, then a short description beneath it
+        local label = newLabel(tile, {
+            Size = UDim2.new(1, -24, 0, 18), Position = UDim2.new(0, 12, 0, 54),
+            Font = Enum.Font.GothamMedium, Text = title, TextSize = 13,
+            TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd,
         })
+        newLabel(tile, {
+            Size = UDim2.new(1, -24, 0, 26), Position = UDim2.new(0, 12, 0, 73),
+            Font = Enum.Font.Gotham, Text = DESC[title] or "", TextSize = 10, TextColor3 = COLORS.muted,
+            TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
+        })
+        return tile, label
     end
 
-    -- A row with a plain label on the left and a pill button on the right.
-    -- The label is NOT clickable; only the pill does anything.
+    -- A tile with a value pill along the bottom. Only the pill does anything.
     local function makeRow(labelText, btnText, btnTextSize)
-        local row = glassRow(44)
-        local label = rowLabel(row, labelText)
-
+        local tile, label = makeTile(labelText, 136)
         local btn = Instance.new("TextButton")
-        btn.AnchorPoint = Vector2.new(1, 0.5)
-        btn.Size = UDim2.new(0, BTN_W, 0, 30)
-        btn.Position = UDim2.new(1, -8, 0.5, 0)
-        btn.BackgroundColor3 = BRIGHT and COLORS.accent or COLORS.accent
-        btn.BackgroundTransparency = BRIGHT and 0.86 or 0.8
+        btn.AnchorPoint = Vector2.new(0, 1)
+        btn.Size = UDim2.new(1, -24, 0, 28)
+        btn.Position = UDim2.new(0, 12, 1, -10)
+        btn.BackgroundColor3 = COLORS.accent
+        btn.BackgroundTransparency = BRIGHT and 0.86 or 0.82
         btn.BorderSizePixel = 0
         btn.Font = Enum.Font.GothamBold
         btn.Text = btnText
@@ -4858,48 +4846,42 @@ xpcall(function()
         btn.TextSize = btnTextSize or 12
         btn.TextTruncate = Enum.TextTruncate.AtEnd
         btn.AutoButtonColor = false
-        btn.Parent = row
-        corner(btn, 15)
-        local bst = stroke(btn, COLORS.accent, BRIGHT and 0.55 or 0.3, 1)
-        if not BRIGHT then
-            local bg2 = Instance.new("UIGradient")
-            bg2.Color = ColorSequence.new(COLORS.accent, COLORS.accent2)
-            bg2.Parent = bst
-        end
+        btn.Parent = tile
+        corner(btn, 14)
+        local bst = stroke(btn, COLORS.accent, BRIGHT and 0.55 or 0.5, 1)
         return label, btn
     end
 
-    -- iOS-style on/off switch row
+    -- iOS-style on/off switch tile
     local function makeSwitchRow(labelText, initial, onChange)
-        local row = glassRow(44)
-        rowLabel(row, labelText)
+        local row = makeTile(labelText, 106)
 
         local track = Instance.new("TextButton")
-        track.AnchorPoint = Vector2.new(1, 0.5)
-        track.Size = UDim2.new(0, 52, 0, 30)
-        track.Position = UDim2.new(1, -10, 0.5, 0)
+        track.AnchorPoint = Vector2.new(1, 0)
+        track.Size = UDim2.new(0, 44, 0, 26)
+        track.Position = UDim2.new(1, -12, 0, 16)
         track.BackgroundColor3 = initial and COLORS.green or COLORS.gray
         track.BackgroundTransparency = 0.1
         track.BorderSizePixel = 0
         track.Text = ""
         track.AutoButtonColor = false
         track.Parent = row
-        corner(track, 15)
+        corner(track, 13)
 
         local knob = Instance.new("Frame")
         knob.AnchorPoint = Vector2.new(0, 0.5)
-        knob.Size = UDim2.new(0, 26, 0, 26)
-        knob.Position = initial and UDim2.new(1, -28, 0.5, 0) or UDim2.new(0, 2, 0.5, 0)
+        knob.Size = UDim2.new(0, 22, 0, 22)
+        knob.Position = initial and UDim2.new(1, -24, 0.5, 0) or UDim2.new(0, 2, 0.5, 0)
         knob.BackgroundColor3 = COLORS.pure
         knob.BorderSizePixel = 0
         knob.Parent = track
-        corner(knob, 13)
+        corner(knob, 11)
 
         local state = initial
         track.Activated:Connect(function()
             state = not state
             tween(track, { BackgroundColor3 = state and COLORS.green or COLORS.gray }, 0.25)
-            tween(knob, { Position = state and UDim2.new(1, -28, 0.5, 0) or UDim2.new(0, 2, 0.5, 0) }, 0.3, Enum.EasingStyle.Back)
+            tween(knob, { Position = state and UDim2.new(1, -24, 0.5, 0) or UDim2.new(0, 2, 0.5, 0) }, 0.3, Enum.EasingStyle.Back)
             onChange(state)
         end)
         return row
@@ -5188,18 +5170,10 @@ xpcall(function()
 
     local modeIndex = 3 -- Classic (index in AIM_MODES)
     for i, nm in ipairs(AIM_MODES) do if nm == AssistSettings.ModeName then modeIndex = i end end
-    local faceRow = makeSwitchRow("🧭 Face target (Lock On)", ConfigStore.faceTarget ~= false, function(on)
-        ConfigStore.faceTarget = on
-        AssistSettings.FaceTarget = on
-        playEmbedded(on and "click" or "off", 0.7, 1, 1)
-    end)
-    AssistSettings.FaceTarget = ConfigStore.faceTarget ~= false
-    faceRow.Visible = false
     local function applyAimMode(name)
         AssistSettings.ModeName = name
         local preset = AIM_PRESETS[name]
         AssistSettings.LockOn = (preset and preset.Lock) == true
-        if faceRow then faceRow.Visible = AssistSettings.LockOn end
         if preset then
             AssistSettings.Solver = preset.Solver
             AssistSettings.Smoothing = preset.Smoothing
@@ -5269,14 +5243,6 @@ xpcall(function()
         ConfigStore.hotbarGuard = on
         pcall(function() ((getgenv and getgenv()) or _G).__ExoticaHotbarGuardOn = on end)
         playEmbedded(on and "click" or "off", 0.7, 1, 1)
-    end)
-    makeSwitchRow("☀️ Bright theme (re-run)", ConfigStore.bright ~= false, function(on)
-        ConfigStore.bright = on
-        playEmbedded(on and "click" or "off", 0.7, 1, 1)
-        if showNotification then
-            pcall(showNotification, { title = "Theme saved", badge = "i", color = COLORS.accent, width = 300, duration = 4, sounds = {},
-                items = { "Run the script again to apply the " .. (on and "bright" or "dark") .. " theme." } })
-        end
     end)
     makeSwitchRow("🧹 Evict unknown items", ConfigStore.evictUnknown == true, function(on)
         ConfigStore.evictUnknown = on
@@ -5887,10 +5853,10 @@ xpcall(function()
     do
         local pill = Instance.new("TextButton")
         pill.AnchorPoint = Vector2.new(1, 0)
-        pill.Position = UDim2.new(1, -12, 0, 14)
+        pill.Position = UDim2.new(1, -16, 0, 52)
         pill.Size = UDim2.new(0, 80, 0, 20)
-        pill.BackgroundColor3 = Color3.new(1, 1, 1)
-        pill.BackgroundTransparency = 0.08
+        pill.BackgroundColor3 = UI2.stage.color
+        pill.BackgroundTransparency = 0.82
         pill.BorderSizePixel = 0
         pill.AutoButtonColor = false
         pill.Font = Enum.Font.GothamBold
@@ -5899,7 +5865,7 @@ xpcall(function()
         pill.Text = "● v" .. SCRIPT_VERSION .. " " .. string.upper(SCRIPT_STAGE)
         pill.Parent = main
         corner(pill, 10)
-        stroke(pill, Color3.new(1, 1, 1), 0.4, 1)
+        stroke(pill, UI2.stage.color, 0.5, 1)
         pill.Activated:Connect(function()
             playEmbedded("click", 0.6, 1, 0.8)
             if showNotification then
