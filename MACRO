@@ -777,6 +777,7 @@ local SCRIPT_STAGE = "Alpha" -- "Alpha" (red: early, expect breakage), "Beta" (a
 local DISCORD_TAG = "davido_me" -- put your Discord tag here, e.g. "name#0000" or "name". The blue "Need help?" button stays hidden if this is empty.
 local HighPing = false -- set by the ping watch further down
 local AutoEquipEnabled = true -- the "Auto Equip" switch flips this
+local HotbarGuardEnabled = true -- the "Hotbar Guard" switch flips this (stops the game hiding your hotbar / pulling tools out)
 
 -- Saved settings: everything you switch on or off is remembered between sessions (auto-save, or the Save button).
 local CONFIG_FILE = "ExoticaMacros_config.json"
@@ -791,7 +792,7 @@ ConfigStore.collect = function()
         marker = AssistSettings.Marker, skipFriends = AssistSettings.SkipFriends, ignored = ign, target = AssistSettings.TargetPlayer,
         speedAuto = AssistSettings.SpeedAuto, manualSpeed = AssistSettings.ManualSpeed,
         customSmoothing = AssistSettings.CustomSmoothing, customLead = AssistSettings.CustomLead,
-        sounds = SoundsEnabled, autoFix = AutoFixEnabled, autoAccessories = AutoAccessoryEnabled, autoEquip = AutoEquipEnabled,
+        sounds = SoundsEnabled, autoFix = AutoFixEnabled, autoAccessories = AutoAccessoryEnabled, autoEquip = AutoEquipEnabled, hotbarGuard = HotbarGuardEnabled,
         clickMode = ClickMode,
     }
 end
@@ -828,9 +829,11 @@ ConfigStore.load = function()
     AutoFixEnabled = b(d.autoFix, AutoFixEnabled)
     AutoAccessoryEnabled = b(d.autoAccessories, AutoAccessoryEnabled)
     AutoEquipEnabled = b(d.autoEquip, AutoEquipEnabled)
+    HotbarGuardEnabled = b(d.hotbarGuard, HotbarGuardEnabled)
     if d.clickMode == "Mouse" or d.clickMode == "Tap" or d.clickMode == "Tool" then ClickMode = d.clickMode end
 end
 ConfigStore.load()
+pcall(function() ((getgenv and getgenv()) or _G).__ExoticaHotbarGuardOn = HotbarGuardEnabled end) -- tell the Hotbar Guard whether it starts on or off
 local LastUserInput = os.clock() -- when you last touched the screen/keys (auto-fix waits until you're still)
 local SynthDragging = false -- true only while the script's own virtual drag is running
 local LastCombat = os.clock() - 100 -- last time you fought (took damage, swung a tool, fired a macro)
@@ -4944,6 +4947,11 @@ xpcall(function()
     end)
     makeSwitchRow("🧤 Auto Equip", AutoEquipEnabled, function(on)
         AutoEquipEnabled = on
+        playEmbedded(on and "click" or "off", 0.7, 1, 1)
+    end)
+    makeSwitchRow("🛡️ Hotbar Guard", HotbarGuardEnabled, function(on)
+        HotbarGuardEnabled = on
+        pcall(function() ((getgenv and getgenv()) or _G).__ExoticaHotbarGuardOn = on end) -- the guard checks this every 0.1s
         playEmbedded(on and "click" or "off", 0.7, 1, 1)
     end)
     makeSwitchRow("💾 Auto-save settings", ConfigStore.autosave, function(on)
@@ -9587,6 +9595,16 @@ task.spawn(function()
     local env = (getgenv and getgenv()) or _G
     env.__ExoticaGuardGen = (env.__ExoticaGuardGen or 0) + 1
     local myGen = env.__ExoticaGuardGen
+
+    -- on/off switch: set getgenv().__ExoticaHotbarGuardOn = false to turn the guard off, true to turn it back on
+    -- (the Exotica panel's "Hotbar Guard" switch does exactly this). Unset = on. When off, everything passes through.
+    task.spawn(function()
+        while true do
+            task.wait(0.1)
+            if env.__ExoticaGuardGen ~= myGen then GUARD_ENABLED = false return end
+            GUARD_ENABLED = (env.__ExoticaHotbarGuardOn ~= false)
+        end
+    end)
 
     local RS = game:GetService("ReplicatedStorage")
     local t0 = os.clock()
