@@ -516,6 +516,33 @@ RunService.RenderStepped:Connect(function(dt)
             screen = world and toScreen(world)
         end
         MarkerUpdate(screen)
+        -- Lock On: the cursor / tracker rides the target every frame, so a click is already on it (no travel time)
+        if AssistSettings.LockOn and not AssistSettings.LockPause then
+            local plr = pickTarget()
+            local world = plr and predictFor(plr, "golden")
+            local sc = world and toScreen(world)
+            if sc and plr then
+                if ClickMode == "Mouse" and not AssistSettings.isPhone() and now >= (AssistSettings.nextLockMove or 0) then
+                    AssistSettings.nextLockMove = now + 0.016
+                    pcall(function() VIM:SendMouseMoveEvent(sc.X, sc.Y, game) end)
+                end
+                if AssistSettings.FaceTarget ~= false then -- turn the character (not the camera) toward the target
+                    pcall(function()
+                        local ch = p.Character
+                        local root = ch and ch:FindFirstChild("HumanoidRootPart")
+                        local hum = ch and ch:FindFirstChildOfClass("Humanoid")
+                        local tr = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
+                        if root and tr and hum and hum.Health > 0 and not hum.Sit then
+                            local d = tr.Position - root.Position
+                            d = Vector3.new(d.X, 0, d.Z)
+                            if d.Magnitude > 1 then
+                                root.CFrame = root.CFrame:Lerp(CFrame.lookAt(root.Position, root.Position + d), math.min(1, dt * 14))
+                            end
+                        end
+                    end)
+                end
+            end
+        end
         return
     end
 
@@ -854,7 +881,7 @@ local AutoEquipEnabled = true -- the "Auto Equip" switch flips this
 
 -- Saved settings: everything you switch on or off is remembered between sessions (auto-save, or the Save button).
 local CONFIG_FILE = "ExoticaMacros_config.json"
-local ConfigStore = { autosave = true, evictUnknown = false, hotbarGuard = true, lastEquip = 0, bright = true }
+local ConfigStore = { autosave = true, evictUnknown = false, hotbarGuard = true, lastEquip = 0, bright = false, faceTarget = true }
 -- Hotbar Guard: the script spaces out its own equips so the game's spam check never trips (waits only on script threads)
 ConfigStore.pace = function()
     if ConfigStore.hotbarGuard ~= false then
@@ -874,7 +901,7 @@ ConfigStore.collect = function()
         speedAuto = AssistSettings.SpeedAuto, manualSpeed = AssistSettings.ManualSpeed,
         customSmoothing = AssistSettings.CustomSmoothing, customLead = AssistSettings.CustomLead,
         sounds = SoundsEnabled, autoFix = AutoFixEnabled, autoAccessories = AutoAccessoryEnabled, autoEquip = AutoEquipEnabled,
-        clickMode = ClickMode, evictUnknown = ConfigStore.evictUnknown, hotbarGuard = ConfigStore.hotbarGuard, bright = ConfigStore.bright,
+        clickMode = ClickMode, evictUnknown = ConfigStore.evictUnknown, hotbarGuard = ConfigStore.hotbarGuard, osbSize = ConfigStore.osbSize, brightTheme = ConfigStore.bright, faceTarget = ConfigStore.faceTarget,
         crossOn = AssistSettings.CrossOn, crossX = AssistSettings.CrossFrac.X, crossY = AssistSettings.CrossFrac.Y,
     }
 end
@@ -916,7 +943,9 @@ ConfigStore.load = function()
     if d.clickMode == "Mouse" or d.clickMode == "Tap" or d.clickMode == "Tool" then ClickMode = d.clickMode end
     ConfigStore.evictUnknown = b(d.evictUnknown, false)
     ConfigStore.hotbarGuard = b(d.hotbarGuard, true)
-    ConfigStore.bright = b(d.bright, true)
+    ConfigStore.bright = b(d.brightTheme, false)
+    ConfigStore.faceTarget = b(d.faceTarget, true)
+    ConfigStore.osbSize = (type(d.osbSize) == "number" and d.osbSize >= 1 and d.osbSize <= 4) and math.floor(d.osbSize) or 2
     AssistSettings.CrossOn = b(d.crossOn, false)
     if type(d.crossX) == "number" and type(d.crossY) == "number" then
         AssistSettings.CrossFrac = Vector2.new(math.clamp(d.crossX, 0.03, 0.97), math.clamp(d.crossY, 0.03, 0.97))
@@ -4598,7 +4627,7 @@ xpcall(function()
         aurora.ClipsDescendants = true
         aurora.Parent = main
         corner(aurora, 28)
-        for _, def in ipairs({ { COLORS.accent, 0.95, 0.35, 260, 0.80 }, { COLORS.accent2, 0.02, 0.62, 240, 0.80 }, { COLORS.green, 0.9, 0.95, 200, 0.88 } }) do
+        for _, def in ipairs({ { COLORS.accent, 0.95, 0.35, 260, BRIGHT and 0.80 or 0.9 }, { COLORS.accent2, 0.02, 0.62, 240, BRIGHT and 0.80 or 0.9 }, { Color3.fromRGB(255, 105, 190), 0.9, 0.95, 200, BRIGHT and 0.88 or 0.93 } }) do
             local b = Instance.new("Frame")
             b.AnchorPoint = Vector2.new(0.5, 0.5)
             b.Position = UDim2.new(def[2], 0, def[3], 0)
@@ -4618,11 +4647,18 @@ xpcall(function()
         local bg = Instance.new("UIGradient")
         bg.Rotation = 18
         bg.Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, COLORS.accent),
-            ColorSequenceKeypoint.new(0.55, COLORS.accent2),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(236, 100, 190)),
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(70, 130, 255)),
+            ColorSequenceKeypoint.new(0.35, Color3.fromRGB(150, 90, 255)),
+            ColorSequenceKeypoint.new(0.7, Color3.fromRGB(255, 100, 190)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 165, 80)),
         })
         bg.Parent = banner
+        local t0 = os.clock() -- slow drifting shimmer
+        local shim
+        shim = RunService.RenderStepped:Connect(function()
+            if not banner.Parent then shim:Disconnect() return end
+            bg.Offset = Vector2.new(math.sin((os.clock() - t0) * 0.5) * 0.12, 0)
+        end)
         local gloss = Instance.new("Frame")
         gloss.Size = UDim2.new(1, 0, 0.5, 0)
         gloss.BackgroundColor3 = Color3.new(1, 1, 1)
@@ -4737,7 +4773,25 @@ xpcall(function()
         row.BorderSizePixel = 0
         row.Parent = container
         corner(row, 16)
-        stroke(row, BRIGHT and Color3.fromRGB(188, 202, 244) or COLORS.white, BRIGHT and 0.2 or 0.88, 1)
+        local rst = stroke(row, BRIGHT and Color3.fromRGB(188, 202, 244) or COLORS.white, BRIGHT and 0.2 or 0.88, 1)
+        if not BRIGHT then
+            row.BackgroundTransparency = 0.86
+            local fillG = Instance.new("UIGradient") -- soft blue-to-violet tint across the row
+            fillG.Color = ColorSequence.new(COLORS.accent, COLORS.accent2)
+            fillG.Transparency = NumberSequence.new(0, 0.55)
+            fillG.Parent = row
+            rst.Color = Color3.new(1, 1, 1)
+            rst.Transparency = 0.35
+            local eg = Instance.new("UIGradient") -- rainbow hairline edge
+            eg.Rotation = 20
+            eg.Color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, COLORS.accent),
+                ColorSequenceKeypoint.new(0.5, COLORS.accent2),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 120, 170)),
+            })
+            eg.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.35), NumberSequenceKeypoint.new(1, 0.8) })
+            eg.Parent = rst
+        end
         local stripe = Instance.new("Frame") -- thin colour bar on the left edge
         stripe.Size = UDim2.new(0, 3, 0, math.max(14, height - 26))
         stripe.Position = UDim2.new(0, 5, 0.5, -math.max(14, height - 26) // 2)
@@ -4761,11 +4815,17 @@ xpcall(function()
             local chip = Instance.new("Frame")
             chip.Size = UDim2.new(0, 28, 0, 28)
             chip.Position = UDim2.new(0, 14, 0.5, -14)
-            chip.BackgroundColor3 = COLORS.accent
-            chip.BackgroundTransparency = 0.85
+            chip.BackgroundColor3 = BRIGHT and COLORS.accent or Color3.new(1, 1, 1)
+            chip.BackgroundTransparency = BRIGHT and 0.85 or 0.72
             chip.BorderSizePixel = 0
             chip.Parent = row
             corner(chip, 9)
+            if not BRIGHT then
+                local cgr = Instance.new("UIGradient")
+                cgr.Rotation = 45
+                cgr.Color = ColorSequence.new(COLORS.accent, COLORS.accent2)
+                cgr.Parent = chip
+            end
             newLabel(chip, { Size = UDim2.new(1, 0, 1, 0), Text = emoji, TextSize = 15, Font = Enum.Font.GothamBold })
         end
         return newLabel(row, {
@@ -4789,8 +4849,8 @@ xpcall(function()
         btn.AnchorPoint = Vector2.new(1, 0.5)
         btn.Size = UDim2.new(0, BTN_W, 0, 30)
         btn.Position = UDim2.new(1, -8, 0.5, 0)
-        btn.BackgroundColor3 = BRIGHT and COLORS.accent or COLORS.white
-        btn.BackgroundTransparency = BRIGHT and 0.86 or 0.82
+        btn.BackgroundColor3 = BRIGHT and COLORS.accent or COLORS.accent
+        btn.BackgroundTransparency = BRIGHT and 0.86 or 0.8
         btn.BorderSizePixel = 0
         btn.Font = Enum.Font.GothamBold
         btn.Text = btnText
@@ -4800,7 +4860,12 @@ xpcall(function()
         btn.AutoButtonColor = false
         btn.Parent = row
         corner(btn, 15)
-        stroke(btn, BRIGHT and COLORS.accent or COLORS.white, BRIGHT and 0.55 or 0.8, 1)
+        local bst = stroke(btn, COLORS.accent, BRIGHT and 0.55 or 0.3, 1)
+        if not BRIGHT then
+            local bg2 = Instance.new("UIGradient")
+            bg2.Color = ColorSequence.new(COLORS.accent, COLORS.accent2)
+            bg2.Parent = bst
+        end
         return label, btn
     end
 
@@ -4837,6 +4902,7 @@ xpcall(function()
             tween(knob, { Position = state and UDim2.new(1, -28, 0.5, 0) or UDim2.new(0, 2, 0.5, 0) }, 0.3, Enum.EasingStyle.Back)
             onChange(state)
         end)
+        return row
     end
 
     -- A full-width row with a label, a live value readout, and a draggable track.
@@ -5019,10 +5085,11 @@ xpcall(function()
     -- Custom  = solver with your own Strength and Lead sliders
     local AIM_PRESETS = {
         Smart      = { Solver = true,  Smoothing = 1.0,  Lead = 1.0 },
+        ["Lock On"] = { Solver = true, Smoothing = 1.0,  Lead = 1.0, Lock = true },
         Classic    = { Solver = false, Smoothing = 0.6,  Prediction = 0.12 },
         Aggressive = { Solver = false, Smoothing = 0.95, Prediction = 0.3 },
     }
-    local AIM_MODES = { "Smart", "Classic", "Aggressive", "Custom" }
+    local AIM_MODES = { "Smart", "Lock On", "Classic", "Aggressive", "Custom" }
 
     local _, modeBtn = makeRow("⚡ Aim Mode", AssistSettings.ModeName or "Classic")
 
@@ -5119,11 +5186,20 @@ xpcall(function()
         end
     end
 
-    local modeIndex = 2 -- Classic (index in AIM_MODES)
+    local modeIndex = 3 -- Classic (index in AIM_MODES)
     for i, nm in ipairs(AIM_MODES) do if nm == AssistSettings.ModeName then modeIndex = i end end
+    local faceRow = makeSwitchRow("🧭 Face target (Lock On)", ConfigStore.faceTarget ~= false, function(on)
+        ConfigStore.faceTarget = on
+        AssistSettings.FaceTarget = on
+        playEmbedded(on and "click" or "off", 0.7, 1, 1)
+    end)
+    AssistSettings.FaceTarget = ConfigStore.faceTarget ~= false
+    faceRow.Visible = false
     local function applyAimMode(name)
         AssistSettings.ModeName = name
         local preset = AIM_PRESETS[name]
+        AssistSettings.LockOn = (preset and preset.Lock) == true
+        if faceRow then faceRow.Visible = AssistSettings.LockOn end
         if preset then
             AssistSettings.Solver = preset.Solver
             AssistSettings.Smoothing = preset.Smoothing
@@ -5859,6 +5935,8 @@ xpcall(function()
         RPG = { icon = "🚀", label = "RPG", color = COLORS.warn, dx = 0.86, dy = 0.62 },
     } }
     OSB.order = { "Snowball", "Board", "RPG" }
+    OSB.sizes = { 52, 68, 84, 100 }
+    OSB.sizeNames = { "Small", "Medium", "Large", "XL" }
     OSB.file = "ExoticaMacros_buttons.json"
     OSB.save = function()
         local data = {}
@@ -5927,7 +6005,8 @@ xpcall(function()
         local spec, saved = OSB.spec[name], OSB.saved[name]
         local b = Instance.new("TextButton")
         b.Name = "OSB_" .. name
-        b.Size = UDim2.new(0, 68, 0, 68)
+        local px = OSB.sizes[ConfigStore.osbSize or 2] or 68
+        b.Size = UDim2.new(0, px, 0, px)
         b.AnchorPoint = Vector2.new(0.5, 0.5)
         b.Position = UDim2.new((saved and saved.x) or spec.dx, 0, (saved and saved.y) or spec.dy, 0)
         b.BackgroundColor3 = COLORS.glass
@@ -5935,11 +6014,11 @@ xpcall(function()
         b.BorderSizePixel = 0
         b.AutoButtonColor = false
         b.Font = Enum.Font.GothamBold
-        b.TextSize = 12
+        b.TextSize = math.max(9, math.floor(px / 68 * 12 + 0.5))
         b.TextColor3 = COLORS.white
         b.ZIndex = 60
         b.Parent = sg
-        corner(b, 34)
+        corner(b, px // 2)
         stroke(b, spec.color, 0.3, 2)
         local sc = Instance.new("UIScale")
         sc.Parent = b
@@ -6093,11 +6172,9 @@ xpcall(function()
             btn.Activated:Connect(function()
                 if OSB.buttons[name] then
                     OSB.remove(name)
-                    playEmbedded("cancel", 0.7, 1, 1)
                 else
                     OSB.make(name)
                     OSB.save()
-                    playEmbedded("chime", 0.7, 1, 1.2)
                     if showNotification and not AutoFixMemory.osbTipShown then
                         AutoFixMemory.osbTipShown = true
                         pcall(showNotification, {
@@ -6119,11 +6196,25 @@ xpcall(function()
         osbY = osbY + 46
         moveBtn.Activated:Connect(function()
             OSB.editMode = not OSB.editMode
-            playEmbedded("pop", 0.7, 1, 1.2)
             OSB.refresh()
             OSB.update()
         end)
+        local sizeBtn = osbRow(osbY, "↔ Button size")
+        osbY = osbY + 46
+        sizeBtn.Activated:Connect(function()
+            ConfigStore.osbSize = ((ConfigStore.osbSize or 2) % #OSB.sizes) + 1
+            local px = OSB.sizes[ConfigStore.osbSize]
+            for _, b in pairs(OSB.buttons) do
+                b.Size = UDim2.new(0, px, 0, px)
+                b.TextSize = math.max(9, math.floor(px / 68 * 12 + 0.5))
+                local cr = b:FindFirstChildOfClass("UICorner")
+                if cr then cr.CornerRadius = UDim.new(0, px // 2) end
+            end
+            OSB.update()
+        end)
         OSB.update = function()
+            sizeBtn.Text = OSB.sizeNames[ConfigStore.osbSize or 2]
+            sizeBtn.BackgroundColor3 = COLORS.accent2
             for _, name in ipairs(OSB.order) do
                 local on = OSB.buttons[name] ~= nil
                 OSB.rows[name].Text = on and "Remove" or "Add"
@@ -8758,6 +8849,7 @@ xpcall(function()
             for _, g in ipairs(glows) do
                 if (g.flashUntil or 0) > now then flashing = true break end
             end
+            AssistSettings.LockPause = (autoOpen or autoFix.busy or SynthDragging) and true or false -- Lock On stays off the cursor while the backpack is in use
             -- hotbar "out of balance" cue: with the backpack closed, slots that hold the wrong weapon pulse amber
             if autoOpen or pinned then
                 slotGlow.unbal, slotGlow.unbalCount = false, 0
@@ -11017,7 +11109,10 @@ task.spawn(function()
                 local why = activeBlocks()
                 dlog("SetBackpackEnabled(false) | game reasons:", #why > 0 and table.concat(why, ",") or "NONE")
                 dlog((debug.traceback("caller", 2):gsub("\n", " <- ")))
-                if GUARD_ENABLED and #why == 0 then
+                -- only the anti-spam shutdown (right after a burst of equips) is ignored; the game's own
+                -- legitimate hide/show calls (menus, shops, the backpack screen) pass through untouched
+                local recentBurst = os.clock() - (env.__ExoticaLastToolAdd or -10) < 2.5
+                if GUARD_ENABLED and #why == 0 and recentBurst then
                     dlog("-> ignored")
                     return
                 end
@@ -11124,6 +11219,7 @@ task.spawn(function()
                 local nowA = os.clock()
                 if nowA - lastToolAdd >= 0.7 then burst = 0 end -- same rule the game uses
                 burst = burst + 1
+                env.__ExoticaLastToolAdd = nowA
                 equippedAt[c] = nowA
                 lastToolAdd = nowA
                 lastEquipped = c
@@ -11184,7 +11280,8 @@ task.spawn(function()
                 lastState = enabled
                 dlog("hotbar enabled =", tostring(enabled))
             end
-            if GUARD_ENABLED and ok and enabled == false and #activeBlocks() == 0 then
+            if GUARD_ENABLED and ok and enabled == false and #activeBlocks() == 0
+                and os.clock() - (env.__ExoticaLastToolAdd or -10) < 6 then -- only undo a shutdown that followed an equip burst
                 local hum = p.Character and p.Character:FindFirstChildOfClass("Humanoid")
                 if hum and hum.Health > 0 then
                     pcall(function()
